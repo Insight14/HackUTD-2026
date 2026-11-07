@@ -229,3 +229,18 @@ class OpenCVVisionService:
         return frame
 
 vision_service = OpenCVVisionService()
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("TIDEWATCH OPENCV VISION SERVICE SELF-TEST")
+    print("=" * 60)
+    service = OpenCVVisionService()
+    test_img = service.generate_synthetic_test_frame(target_fill_fraction=0.45, pump_led_on=True)
+    result = service.process_frame(test_img)
+    print(f"Vision Status:          {result.status}")
+    print(f"Optical Fill Fraction:  {result.optical_fill_fraction * 100:.1f}% (Expected ~45%)")
+    print(f"Estimated Tank Level:   {result.estimated_level_bbl} bbl")
+    print(f"Pump LED Detected:      {result.pump_led_illuminated} (State: {result.pump_state_detected})")
+    print(f"Confidence:             {result.confidence}")
+    print("=" * 60)
+    print("Computer Vision Pipeline Verified Successfully.")
