@@ -47,3 +47,4 @@
   - Estimate 2: Optical camera fill fraction
   - Estimate 3: Dynamic flow mass balance ($Level_t = Level_{t-1} + \frac{(Inflow - Outflow) \cdot \Delta t}{Area}$)
 - **Graceful Degradation:** When camera is disconnected, system displays `"VISION_OFFLINE"`, never zero or fabricated levels.
+

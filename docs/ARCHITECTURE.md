@@ -76,3 +76,4 @@ Tidewatch is a real-time AI-assisted decision console for produced-water operati
    - Compares 3 independent estimates for tank level: (1) Ultrasonic sensor, (2) Camera HSV fraction, (3) Mass balance inflow/outflow integration.
    - If two agree and one diverges, the outlier is isolated and uncertainty is widened.
    - Physical relay actuation is gated strictly by explicit human operator click in the console.
+

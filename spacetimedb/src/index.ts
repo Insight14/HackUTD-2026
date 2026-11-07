@@ -294,3 +294,4 @@ export const resolve_incident = spacetimedb.reducer(
     console.info(`Resolved incident ${incident_id}: ${resolution_notes}`);
   }
 );
+

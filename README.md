@@ -114,3 +114,4 @@ Visit `http://localhost:5173` to view the Tidewatch console.
 ## Synthetic Data Notice
 
 All costs, flow parameters, fluid volumes, and failure distributions are illustrative defaults modeled after typical Permian Basin produced-water operations. They can be replaced with real EOG field parameters via `config/avon_system.json`.
+

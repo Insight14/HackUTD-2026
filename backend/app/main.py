@@ -1,15 +1,33 @@
 """FastAPI Backend Entrypoint for Tidewatch."""
 import json
+import asyncio
+import json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.app.config import settings
+from backend.app.api.simulator import router as simulator_router, simulator, broadcast_state
+
+_background_ticker_task = None
+
+async def _simulation_tick_loop():
+    """Background ticker advancing simulation time every second."""
+    try:
+        while True:
+            await asyncio.sleep(1.0)
+            state = simulator.step(dt_seconds=1.0)
+            await broadcast_state(state)
+    except asyncio.CancelledError:
+        pass
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Load baseline topology and verify configuration
+    global _background_ticker_task
     print(f"Starting {settings.app_name} in {settings.environment} mode.")
+    _background_ticker_task = asyncio.create_task(_simulation_tick_loop())
     yield
+    if _background_ticker_task:
+        _background_ticker_task.cancel()
     print("Shutting down Tidewatch backend.")
 
 app = FastAPI(
@@ -26,6 +44,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(simulator_router)
+
 
 @app.get("/api/health")
 async def health_check():
@@ -49,3 +70,4 @@ async def get_topology():
         return {"error": "Topology configuration file not found"}
     with open(settings.topology_config_path, "r") as f:
         return json.load(f)
+
