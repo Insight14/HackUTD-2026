@@ -66,3 +66,9 @@ Thumbs.db
 .idea/
 .vscode/
 
+
+# Phase 8 generated files
+*.tsbuildinfo
+playwright-report/
+test-results/
+node_modules

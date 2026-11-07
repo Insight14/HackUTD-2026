@@ -1,0 +1,916 @@
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  Activity,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Box,
+  ChevronDown,
+  ChevronRight,
+  CircleHelp,
+  Crosshair,
+  Droplets,
+  Expand,
+  Focus,
+  Hand,
+  Layers,
+  Maximize2,
+  Minus,
+  MousePointer2,
+  Pause,
+  Play,
+  Plus,
+  Radio,
+  RotateCcw,
+  ScanLine,
+  ShieldCheck,
+  SlidersHorizontal,
+  TriangleAlert,
+  Waves,
+  X,
+} from "lucide-react";
+const DigitalTwin = lazy(() =>
+  import("./components/DigitalTwin").then((m) => ({ default: m.DigitalTwin })),
+);
+import { demoSnapshot } from "./data/demo";
+import { validateSnapshot } from "./data/validate";
+import type { TwinSnapshot, TwinSource, ViewCommand } from "./data/types";
+import { useHandTracking, type HandEvent } from "./gestures/useHandTracking";
+function Sparkline({
+  values,
+  color = "#56e4e9",
+}: {
+  values: number[];
+  color?: string;
+}) {
+  const max = Math.max(100, ...values);
+  return (
+    <svg
+      viewBox="0 0 240 65"
+      preserveAspectRatio="none"
+      role="img"
+      aria-label="Reported telemetry history"
+    >
+      <path
+        d="M0 15H240M0 40H240M0 64H240"
+        stroke="#20313b"
+        strokeDasharray="3 5"
+      />
+      <polyline
+        points={values
+          .map(
+            (v, i) =>
+              `${(i * 240) / Math.max(1, values.length - 1)},${62 - (v / max) * 54}`,
+          )
+          .join(" ")}
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+      />
+      <path
+        d={`M0 65 ${values.map((v, i) => `L${(i * 240) / Math.max(1, values.length - 1)} ${62 - (v / max) * 54}`).join(" ")} L240 65Z`}
+        fill={color}
+        opacity=".07"
+      />
+    </svg>
+  );
+}
+export default function App({ source }: { source?: TwinSource }) {
+  const [snapshot, setSnapshot] = useState<TwinSnapshot>(() =>
+      source
+        ? {
+            source: "live",
+            timestamp: "",
+            equipment: [],
+            incident: null,
+            forecast: null,
+          }
+        : demoSnapshot(),
+    ),
+    [scenario, setScenario] = useState("failure"),
+    [selected, setSelected] = useState("T-104"),
+    [paused, setPaused] = useState(false),
+    [enabled, setEnabled] = useState(false),
+    [command, setCommand] = useState<ViewCommand | null>(null),
+    [help, setHelp] = useState(false),
+    [tab, setTab] = useState("twin"),
+    [connectionError, setConnectionError] = useState(""),
+    [lastUpdate, setLastUpdate] = useState(Date.now()),
+    [age, setAge] = useState(0);
+  const [inspectorTab, setInspectorTab] = useState("telemetry");
+  const stage = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (source) {
+      setSnapshot({
+        source: "live",
+        timestamp: "",
+        equipment: [],
+        incident: null,
+        forecast: null,
+      });
+      setConnectionError("Waiting for application state");
+      return source.subscribe(
+        (s) => {
+          try {
+            validateSnapshot(s);
+            setSnapshot(s);
+            setConnectionError("");
+            setLastUpdate(Date.now());
+          } catch (e) {
+            setConnectionError(
+              e instanceof Error ? e.message : "Invalid application snapshot",
+            );
+          }
+        },
+        (e) => setConnectionError(e.message),
+      );
+    }
+    let tick = 0;
+    setSnapshot(demoSnapshot(0, scenario));
+    const id = setInterval(() => {
+      setSnapshot(demoSnapshot(++tick, scenario));
+      setLastUpdate(Date.now());
+    }, 2000);
+    return () => clearInterval(id);
+  }, [source, scenario]);
+  useEffect(() => {
+    const id = setInterval(
+      () => setAge(Math.floor((Date.now() - lastUpdate) / 1000)),
+      1000,
+    );
+    return () => clearInterval(id);
+  }, [lastUpdate]);
+  const select = useCallback((id: string) => {
+    setSelected(id);
+    setInspectorTab("telemetry");
+  }, []);
+  const onGesture = useCallback((e: HandEvent) => {
+    if (e.gesture === "palm") setPaused((p) => !p);
+    if (e.gesture === "pinch") setCommand({ type: "zoom", delta: 0.88 });
+    if (e.gesture === "swipe")
+      setCommand({ type: "rotate", delta: (e.delta ?? 1) * 0.4 });
+    if (e.gesture === "point") setCommand({ type: "select", x: e.x, y: e.y });
+  }, []);
+  const tracking = useHandTracking(enabled, onGesture);
+  useEffect(() => {
+    function key(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setHelp(false);
+        return;
+      }
+      if (
+        (e.target as HTMLElement).matches("input,select,textarea,button") ||
+        help
+      )
+        return;
+      const key = e.key.toLowerCase();
+      if (key === " ") {
+        e.preventDefault();
+        setPaused((p) => !p);
+      }
+      if (key === "r") setCommand({ type: "reset" });
+      if (key === "+" || key === "=") setCommand({ type: "zoom", delta: 0.85 });
+      if (key === "-") setCommand({ type: "zoom", delta: 1.15 });
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        setCommand({
+          type: "rotate",
+          delta: e.key === "ArrowLeft" ? -0.25 : 0.25,
+        });
+      }
+    }
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [help]);
+  const e =
+    snapshot.equipment.find((x) => x.id === selected) ?? snapshot.equipment[0];
+  const warning = snapshot.equipment.filter(
+    (x) => x.status === "failed" || x.status === "warning",
+  ).length;
+  const dataUnavailable = !!source && snapshot.equipment.length === 0;
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <a className="brand" href="#" aria-label="Tidewatch home">
+          <div className="brand-icon">
+            <Waves size={25} />
+          </div>
+          <span>
+            TIDEWATCH<small>PRODUCED WATER INTELLIGENCE</small>
+          </span>
+        </a>
+        <div className="header-divider" />
+        <div className="site-id">
+          <span className="tiny">OPERATIONS NETWORK</span>
+          <span>
+            AVON <span className="muted">/</span> NORTH FIELD{" "}
+            <ChevronDown size={12} />
+          </span>
+        </div>
+        <div className="header-right">
+          <span className="event-pill">
+            HACKUTD <b>ZERO DAY</b>
+          </span>
+          <span className="connection">
+            <i className={source && connectionError ? "dot amber" : "dot"} />
+            {source
+              ? connectionError
+                ? "DISCONNECTED"
+                : "CONNECTED"
+              : "DEMO ENVIRONMENT"}
+          </span>
+          <span className="avatar">OP</span>
+        </div>
+      </header>
+      <div className="workspace">
+        <nav className="rail" aria-label="Primary navigation">
+          <div className="rail-top">
+            <button
+              title="Digital twin"
+              aria-label="Digital twin"
+              className={tab === "twin" ? "active" : ""}
+              onClick={() => setTab("twin")}
+            >
+              <Box size={21} />
+            </button>
+            <button
+              title="Equipment telemetry"
+              aria-label="Equipment telemetry"
+              className={tab === "equipment" ? "active" : ""}
+              onClick={() => setTab("equipment")}
+            >
+              <Activity size={21} />
+            </button>
+            <button
+              title="Gesture controls"
+              aria-label="Gesture controls"
+              onClick={() => setHelp(true)}
+            >
+              <Hand size={21} />
+            </button>
+          </div>
+          <button
+            title="Help and keyboard shortcuts"
+            aria-label="Help and keyboard shortcuts"
+            onClick={() => setHelp(true)}
+          >
+            <CircleHelp size={20} />
+          </button>
+          <span className="rail-version">08</span>
+        </nav>
+        <main>
+          <div className="page-heading">
+            <div>
+              <div className="eyebrow">
+                <span /> SPATIAL OPERATIONS <ChevronRight size={10} /> PHASE 08
+              </div>
+              <h1>
+                See the system.<span> Stay ahead.</span>
+              </h1>
+              <p>A new perspective on the water that keeps Avon running.</p>
+            </div>
+            <button
+              className={`gesture-toggle ${enabled ? "enabled" : ""}`}
+              onClick={() => setEnabled((x) => !x)}
+            >
+              <Hand size={16} />
+              {enabled ? "Disable gestures" : "Enable gestures"}
+              <span className="keycap">CV</span>
+            </button>
+          </div>
+          <div className="summary-strip">
+            <div>
+              <span className="metric-icon">
+                <Layers size={18} />
+              </span>
+              <section>
+                <label>FIELD EQUIPMENT</label>
+                <strong>
+                  {snapshot.equipment.length.toString().padStart(2, "0")}{" "}
+                  <small>assets monitored</small>
+                </strong>
+              </section>
+            </div>
+            <div>
+              <span className="metric-icon warning">
+                <TriangleAlert size={18} />
+              </span>
+              <section>
+                <label>ATTENTION REQUIRED</label>
+                <strong className="warm">
+                  {warning.toString().padStart(2, "0")}{" "}
+                  <small>equipment alerts</small>
+                </strong>
+              </section>
+            </div>
+            <div>
+              <span className="metric-icon">
+                <Activity size={18} />
+              </span>
+              <section>
+                <label>TIME TO HIGH-HIGH</label>
+                <strong>
+                  {snapshot.forecast?.minutes ?? "—"}{" "}
+                  <small>
+                    {snapshot.forecast
+                      ? `min · P10–P90: ${snapshot.forecast.p10}–${snapshot.forecast.p90}`
+                      : "No active forecast"}
+                  </small>
+                </strong>
+              </section>
+            </div>
+            <div>
+              <span className="metric-icon magenta">
+                <Radio size={18} />
+              </span>
+              <section>
+                <label>DATA SOURCE</label>
+                <strong className="source-label">
+                  {source ? snapshot.source.toUpperCase() : "SYNTHETIC"}{" "}
+                  <small>
+                    {source
+                      ? "Application subscription"
+                      : "Illustrative values"}
+                  </small>
+                </strong>
+              </section>
+            </div>
+          </div>
+          {connectionError && (
+            <div className="error-banner" role="alert">
+              Application feed: {connectionError}.{" "}
+              {dataUnavailable
+                ? "Awaiting first snapshot."
+                : "Last received values retained."}
+            </div>
+          )}
+          <div className="content-grid">
+            <section className="twin-panel panel">
+              <div className="panel-heading">
+                <div className="panel-title">
+                  <Box size={16} />
+                  <h2>
+                    {tab === "twin"
+                      ? "AVON DIGITAL TWIN"
+                      : "EQUIPMENT TELEMETRY"}
+                  </h2>
+                  <span className="live-tag">
+                    {source ? "APPLICATION STATE" : "SYNTHETIC DEMO"}
+                  </span>
+                </div>
+                <button
+                  className="icon-button"
+                  title="Expand visualization"
+                  aria-label="Expand visualization"
+                  onClick={() => {
+                    if (document.fullscreenElement)
+                      void document.exitFullscreen();
+                    else
+                      void stage.current
+                        ?.requestFullscreen()
+                        .catch(() => setHelp(true));
+                  }}
+                >
+                  <Maximize2 size={15} />
+                </button>
+              </div>
+              <div className="scene" ref={stage}>
+                <div className="scene-topline">
+                  <div>
+                    <i className={paused ? "dot amber" : "dot"} />
+                    {paused ? "ANIMATION PAUSED" : "FLOW VISUALIZATION ACTIVE"}
+                  </div>
+                  <span>AVON / SECTOR 07</span>
+                </div>
+                {dataUnavailable ? (
+                  <div className="webgl-error">
+                    Waiting for backend data…
+                    <br />
+                    No demo values are substituted for application telemetry.
+                  </div>
+                ) : tab === "twin" ? (
+                  <Suspense
+                    fallback={
+                      <div className="webgl-error">
+                        Initializing spatial view…
+                      </div>
+                    }
+                  >
+                    <DigitalTwin
+                      snapshot={snapshot}
+                      selected={selected}
+                      onSelect={select}
+                      paused={paused}
+                      command={command}
+                    />
+                  </Suspense>
+                ) : (
+                  <div className="equipment-table">
+                    <div className="table-head">
+                      Equipment <span>Status</span>
+                      <span>Level / flow</span>
+                    </div>
+                    {snapshot.equipment.map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => select(item.id)}
+                        className={selected === item.id ? "selected" : ""}
+                      >
+                        <span>
+                          <strong>{item.id}</strong>
+                          <small>{item.name}</small>
+                        </span>
+                        <span
+                          className={
+                            item.status === "failed" ? "pink-text" : ""
+                          }
+                        >
+                          {item.status}
+                        </span>
+                        <b>
+                          {item.level !== undefined
+                            ? `${item.level.toFixed(1)}%`
+                            : `${item.outflow ?? "—"} bbl/h`}
+                        </b>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {enabled && tracking.pointer && (
+                  <div
+                    className="hand-cursor"
+                    style={{
+                      left: `${tracking.pointer.x * 100}%`,
+                      top: `${tracking.pointer.y * 100}%`,
+                    }}
+                  >
+                    <Crosshair size={28} />
+                    <span>
+                      {tracking.gesture === "none"
+                        ? "TRACKING"
+                        : tracking.gesture.toUpperCase()}
+                    </span>
+                  </div>
+                )}
+                <div className="coordinate-label">
+                  X 32.90 <span>Y −96.75</span>
+                  <br />
+                  <small>FIELD REFERENCE · ILLUSTRATIVE</small>
+                </div>
+                <div className="scene-controls">
+                  <button
+                    title="Zoom in (+)"
+                    aria-label="Zoom in"
+                    onClick={() => setCommand({ type: "zoom", delta: 0.85 })}
+                  >
+                    <Plus size={17} />
+                  </button>
+                  <button
+                    title="Zoom out (-)"
+                    aria-label="Zoom out"
+                    onClick={() => setCommand({ type: "zoom", delta: 1.15 })}
+                  >
+                    <Minus size={17} />
+                  </button>
+                  <span />
+                  <button
+                    title="Top view"
+                    aria-label="Top view"
+                    onClick={() => setCommand({ type: "top" })}
+                  >
+                    <Layers size={16} />
+                  </button>
+                  <button
+                    title="Reset view (R)"
+                    aria-label="Reset view"
+                    onClick={() => setCommand({ type: "reset" })}
+                  >
+                    <Focus size={17} />
+                  </button>
+                </div>
+                <div className="compass">
+                  <span>N</span>
+                  <Crosshair size={35} />
+                  <small>FIELD NORTH</small>
+                </div>
+              </div>
+              <div className="scene-toolbar">
+                <div className="view-tabs">
+                  <button
+                    className={tab === "twin" ? "active" : ""}
+                    onClick={() => {
+                      setTab("twin");
+                      setCommand({ type: "reset" });
+                    }}
+                  >
+                    <Box size={13} /> Perspective
+                  </button>
+                  <button onClick={() => setCommand({ type: "top" })}>
+                    <Layers size={13} /> Top view
+                  </button>
+                </div>
+                <div className="legend">
+                  <span>
+                    <i />
+                    Running
+                  </span>
+                  <span>
+                    <i className="amber" />
+                    Warning
+                  </span>
+                  <span>
+                    <i className="pink" />
+                    Fault
+                  </span>
+                </div>
+                <button
+                  className="icon-button"
+                  title={paused ? "Resume animation" : "Pause animation"}
+                  aria-label={paused ? "Resume animation" : "Pause animation"}
+                  onClick={() => setPaused((p) => !p)}
+                >
+                  {paused ? <Play size={15} /> : <Pause size={15} />}
+                </button>
+              </div>
+              <div className="incident-strip">
+                <TriangleAlert size={17} />
+                <div>
+                  <strong>
+                    {snapshot.incident?.title ??
+                      "All monitored equipment nominal"}
+                  </strong>
+                  <span>
+                    {snapshot.incident
+                      ? "Inspect the affected asset. Operational approval stays in the core console."
+                      : "Continue monitoring reported telemetry."}
+                  </span>
+                </div>
+                {snapshot.incident && (
+                  <button
+                    onClick={() => select(snapshot.incident!.equipmentId)}
+                  >
+                    Inspect <ArrowUpRight size={14} />
+                  </button>
+                )}
+              </div>
+            </section>
+            <aside className="inspector panel">
+              <div className="panel-heading">
+                <div className="panel-title">
+                  <ScanLine size={16} />
+                  <h2>ASSET INSPECTOR</h2>
+                </div>
+                <span className="tiny">READ ONLY</span>
+              </div>
+              {e && !dataUnavailable ? (
+                <>
+                  <div className="asset-heading">
+                    <span className="asset-type">
+                      {e.kind === "tank" ? (
+                        <Droplets size={24} />
+                      ) : (
+                        <Activity size={24} />
+                      )}
+                    </span>
+                    <div>
+                      <span className="tiny">
+                        {e.kind.toUpperCase()} / NORTH FIELD
+                      </span>
+                      <h3>
+                        {e.id}
+                        <span className={`status-chip ${e.status}`}>
+                          {e.status === "warning"
+                            ? "HIGH LEVEL"
+                            : e.status.toUpperCase()}
+                        </span>
+                      </h3>
+                      <p>{e.name}</p>
+                    </div>
+                  </div>
+                  <div className="inspector-tabs">
+                    <button
+                      className={inspectorTab === "telemetry" ? "active" : ""}
+                      onClick={() => setInspectorTab("telemetry")}
+                    >
+                      Telemetry
+                    </button>
+                    <button
+                      className={inspectorTab === "diagnosis" ? "active" : ""}
+                      onClick={() => setInspectorTab("diagnosis")}
+                    >
+                      Alerts & context
+                    </button>
+                  </div>
+                  {inspectorTab === "telemetry" ? (
+                    <>
+                      <div className="fill-reading">
+                        <label>
+                          {e.kind === "tank"
+                            ? "CURRENT FILL LEVEL"
+                            : "REPORTED OUTFLOW"}
+                        </label>
+                        <div>
+                          <strong>
+                            {e.kind === "tank"
+                              ? e.level?.toFixed(1)
+                              : (e.outflow ?? "—")}
+                          </strong>
+                          <span>{e.kind === "tank" ? "%" : "bbl/h"}</span>
+                          <small>
+                            {e.kind === "tank"
+                              ? `of ${e.capacity?.toLocaleString()} bbl capacity`
+                              : "Latest application measurement"}
+                          </small>
+                        </div>
+                        <div className="level-meter">
+                          <span style={{ width: `${e.level ?? 0}%` }} />
+                          {snapshot.source === "synthetic" && <i />}
+                        </div>
+                        <div className="scale">
+                          <span>0%</span>
+                          <span>
+                            {snapshot.source === "synthetic"
+                              ? "HIGH-HIGH 95%*"
+                              : "FILL FRACTION"}
+                          </span>
+                          <span>100%</span>
+                        </div>
+                      </div>
+                      <div className="flow-pair">
+                        <div>
+                          <ArrowDownLeft size={15} />
+                          <label>INFLOW</label>
+                          <strong>
+                            {e.inflow ?? "—"}
+                            <small>bbl/h</small>
+                          </strong>
+                        </div>
+                        <div>
+                          <ArrowUpRight size={15} />
+                          <label>OUTFLOW</label>
+                          <strong>
+                            {e.outflow ?? "—"}
+                            <small>bbl/h</small>
+                          </strong>
+                        </div>
+                      </div>
+                      <div className="trend">
+                        <div>
+                          <label>REPORTED HISTORY</label>
+                          <span>
+                            {snapshot.source === "synthetic"
+                              ? "ILLUSTRATIVE"
+                              : "SOURCE SAMPLES"}
+                          </span>
+                        </div>
+                        <Sparkline
+                          values={e.history}
+                          color={e.status === "warning" ? "#ffbd73" : "#56e4e9"}
+                        />
+                        <div className="trend-scale">
+                          <span>Earlier samples</span>
+                          <span>Latest</span>
+                        </div>
+                      </div>
+                      {e.kind === "tank" && (
+                        <div className="sensors">
+                          <div className="section-label">
+                            <ShieldCheck size={14} /> SENSOR CROSS-CHECK
+                          </div>
+                          {[
+                            ["Ultrasonic", e.ultrasonic],
+                            ["Camera estimate", e.camera],
+                            ["Flow balance", e.balance],
+                          ].map(([name, value]) => (
+                            <div className="sensor-row" key={String(name)}>
+                              <span>
+                                <i
+                                  className={
+                                    value == null ? "dot amber" : "dot"
+                                  }
+                                />
+                                {name}
+                              </span>
+                              <strong>
+                                {typeof value === "number"
+                                  ? `${value.toFixed(1)}%`
+                                  : "Offline"}
+                              </strong>
+                            </div>
+                          ))}
+                          <p>Estimates reported by the data source.</p>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="diagnosis">
+                      <TriangleAlert size={23} />
+                      <h4>
+                        {snapshot.incident?.title ?? "No active incident"}
+                      </h4>
+                      <p>
+                        {snapshot.incident?.description ??
+                          "The current snapshot reports no active incident."}
+                      </p>
+                      <p>
+                        Diagnosis, forecasts and response plans are owned by the
+                        core decision engine.
+                      </p>
+                      <div className="info-note">
+                        Gestures cannot approve a plan or operate equipment.
+                      </div>
+                    </div>
+                  )}
+                  <div className="inspector-footer">
+                    <i className="dot" />{" "}
+                    {source
+                      ? `Last update ${age}s ago`
+                      : "Synthetic preview · not field measurements"}
+                  </div>
+                </>
+              ) : (
+                <div className="diagnosis">Awaiting equipment data.</div>
+              )}
+            </aside>
+          </div>
+          <div className="bottom-grid">
+            <section className="gesture-panel panel">
+              <div className="gesture-copy">
+                <div className="section-label">
+                  <Hand size={15} /> HANDS-FREE NAVIGATION{" "}
+                  <span className="beta">MEDIAPIPE</span>
+                </div>
+                <h3>Your hands. The controls.</h3>
+                <p>Explore the field without touching a thing.</p>
+                <div className="tracking-status">
+                  <i
+                    className={
+                      enabled && !tracking.error ? "dot" : "dot muted-dot"
+                    }
+                  />
+                  {tracking.status}
+                  {tracking.gesture !== "none" && <b>{tracking.gesture}</b>}
+                </div>
+              </div>
+              <div className="gesture-cards">
+                {[
+                  {
+                    icon: MousePointer2,
+                    name: "Point",
+                    action: "Select asset",
+                  },
+                  { icon: Hand, name: "Open palm", action: "Pause / resume" },
+                  { icon: Expand, name: "Pinch", action: "Zoom closer" },
+                  {
+                    icon: RotateCcw,
+                    name: "Swipe palm",
+                    action: "Rotate view",
+                  },
+                ].map((g) => (
+                  <button key={g.name} onClick={() => setHelp(true)}>
+                    <g.icon size={25} />
+                    <strong>{g.name}</strong>
+                    <small>{g.action}</small>
+                  </button>
+                ))}
+              </div>
+              <div className={`camera-preview ${enabled ? "on" : ""}`}>
+                <video ref={tracking.video} muted playsInline />
+                <canvas ref={tracking.overlay} width={640} height={480} />
+                {!enabled && (
+                  <div>
+                    <ScanLine size={24} />
+                    <small>CAMERA OFF</small>
+                  </div>
+                )}
+                <span>{enabled ? "LOCAL PROCESSING" : "OPT-IN CAMERA"}</span>
+              </div>
+              {tracking.error && (
+                <p className="camera-error" role="alert">
+                  {tracking.error}
+                </p>
+              )}
+            </section>
+            <section className="demo-panel panel">
+              <div className="section-label">
+                <SlidersHorizontal size={15} />{" "}
+                {source ? "APPLICATION FEED" : "DEMO SCENARIO"}
+              </div>
+              {source ? (
+                <>
+                  <h3>Backend connected</h3>
+                  <p>
+                    Equipment values are supplied by your application
+                    subscription.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <select
+                    aria-label="Demo scenario"
+                    value={scenario}
+                    onChange={(ev) => setScenario(ev.target.value)}
+                  >
+                    <option value="failure">S1 / Pump failure at night</option>
+                    <option value="sensor">
+                      S3 / Level sensor disagreement
+                    </option>
+                    <option value="surge">S4 / Upstream inflow surge</option>
+                    <option value="normal">Normal operation</option>
+                  </select>
+                  <p>
+                    Visual fixtures only. No decision engine or equipment
+                    actuation.
+                  </p>
+                </>
+              )}
+              <button className="text-button" onClick={() => setHelp(true)}>
+                Controls & integration notes <ArrowUpRight size={13} />
+              </button>
+            </section>
+          </div>
+          <footer>
+            <span>
+              <ShieldCheck size={12} /> VISUALIZATION ONLY · HUMAN DECISIONS
+              ALWAYS
+            </span>
+            <span>
+              {source
+                ? "Application data"
+                : "*Illustrative 95% threshold · all values synthetic"}{" "}
+              <span className="footer-dot">/</span> BUILT FOR HACKUTD 2026
+            </span>
+          </footer>
+        </main>
+      </div>
+      {help && (
+        <div className="modal-backdrop" onClick={() => setHelp(false)}>
+          <section
+            className="help-modal panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Controls and integration notes"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              autoFocus
+              className="modal-close icon-button"
+              aria-label="Close help"
+              onClick={() => setHelp(false)}
+            >
+              <X size={20} />
+            </button>
+            <div className="eyebrow">TIDEWATCH / CONTROL GUIDE</div>
+            <h2>Take a closer look.</h2>
+            <p>
+              Drag to orbit. Scroll to zoom. Click an asset or select it below.
+              Arrow keys rotate, + / − zoom, R resets, and Space pauses the flow
+              animation. Telemetry keeps updating while animations are paused.
+            </p>
+            <div className="help-equipment">
+              {snapshot.equipment.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    select(item.id);
+                    setHelp(false);
+                  }}
+                >
+                  {item.id}
+                  <ArrowUpRight size={13} />
+                </button>
+              ))}
+            </div>
+            <h3>Gesture navigation</h3>
+            <p>
+              Enable the camera, keep one hand visible, and hold a gesture for
+              420 ms. Point at an asset, pinch to zoom one step, hold an open
+              palm to pause, or move an open palm sideways to rotate. Release
+              the gesture before repeating. Use good, even lighting.
+            </p>
+            <p>
+              Camera frames stay on this device. Disabling gestures stops camera
+              capture and tracking. Gestures never approve plans, dispatch
+              equipment, or activate relays.
+            </p>
+            <h3>Connect the core application</h3>
+            <p>
+              Pass a TwinSource subscription to the App component. It accepts
+              normalized simulator or SpacetimeDB snapshots and displays
+              connection errors. See docs/INTEGRATION.md for the contract.
+            </p>
+            <button className="primary-button" onClick={() => setHelp(false)}>
+              Return to the field <ChevronRight size={15} />
+            </button>
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}
