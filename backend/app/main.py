@@ -16,6 +16,7 @@ from backend.app.api.hardware_vision import router as hardware_vision_router
 from backend.app.api.scenarios import router as scenarios_router
 from fastapi.staticfiles import StaticFiles
 from backend.app.integrations.tiger_data import tiger_data_adapter, TelemetryPoint
+from backend.app.integrations.mongodb_context import mongodb_adapter
 
 
 
@@ -59,6 +60,8 @@ async def lifespan(app: FastAPI):
     print(f"Starting {settings.app_name} in {settings.environment} mode.")
     # Initialize Tiger Data time-series connection
     await tiger_data_adapter.connect()
+    # Initialize MongoDB context and SOP collection connection
+    await mongodb_adapter.connect()
     _background_ticker_task = asyncio.create_task(_simulation_tick_loop())
     yield
     if _background_ticker_task:

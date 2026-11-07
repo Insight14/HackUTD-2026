@@ -78,6 +78,22 @@ class MongoDBContextAdapter:
             await self._client.admin.command("ping")
             self._connected = True
             logger.info("Connected to MongoDB instance.")
+
+            # Auto-seed SOP runbooks and synthetic historical incidents if collections are empty
+            try:
+                # Extract database name from URI, default to 'tidewatch'
+                parsed_name = self.uri.split("/")[-1].split("?")[0]
+                db_name = parsed_name if parsed_name else "tidewatch"
+                db = self._client[db_name]
+                if await db.runbooks.count_documents({}) == 0 and self.runbooks:
+                    await db.runbooks.insert_many([r.model_dump() for r in self.runbooks])
+                    logger.info("Seeded runbooks collection in MongoDB.")
+                if await db.incidents.count_documents({}) == 0 and self.incidents:
+                    await db.incidents.insert_many([i.model_dump() for i in self.incidents])
+                    logger.info("Seeded historical incidents collection in MongoDB.")
+            except Exception as seed_err:
+                logger.warning(f"Failed to auto-seed MongoDB collections: {seed_err}")
+
             return True
         except Exception as e:
             self._connected = False
