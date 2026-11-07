@@ -1,0 +1,189 @@
+{
+  "system_name": "Avon Produced Water System",
+  "version": "1.0.0",
+  "seed": 42,
+  "description": "Configurable physical topology and illustrative baseline operating parameters for the Avon salt-water gathering network.",
+  "tanks": [
+    {
+      "id": "tank_a",
+      "name": "Gathering Tank A (Rig Node)",
+      "total_capacity_bbl": 1000.0,
+      "working_capacity_bbl": 850.0,
+      "high_high_threshold_bbl": 800.0,
+      "high_threshold_bbl": 700.0,
+      "initial_level_bbl": 410.0,
+      "surface_area_sq_ft": 400.0,
+      "is_hardware_node": true
+    },
+    {
+      "id": "tank_b",
+      "name": "Gathering Tank B (Buffer Node)",
+      "total_capacity_bbl": 1200.0,
+      "working_capacity_bbl": 1000.0,
+      "high_high_threshold_bbl": 950.0,
+      "high_threshold_bbl": 850.0,
+      "initial_level_bbl": 320.0,
+      "surface_area_sq_ft": 480.0,
+      "is_hardware_node": false
+    }
+  ],
+  "pumps": [
+    {
+      "id": "p_1",
+      "name": "Primary Transfer Pump 1",
+      "tank_id": "tank_a",
+      "rated_flow_bbl_per_hr": 120.0,
+      "is_standby": false,
+      "initial_status": "RUNNING",
+      "power_kw": 45.0
+    },
+    {
+      "id": "p_2",
+      "name": "Standby Transfer Pump 2",
+      "tank_id": "tank_a",
+      "rated_flow_bbl_per_hr": 120.0,
+      "is_standby": true,
+      "initial_status": "STANDBY",
+      "power_kw": 45.0
+    },
+    {
+      "id": "p_3",
+      "name": "Tank B Transfer Pump 3",
+      "tank_id": "tank_b",
+      "rated_flow_bbl_per_hr": 150.0,
+      "is_standby": false,
+      "initial_status": "RUNNING",
+      "power_kw": 55.0
+    }
+  ],
+  "wells": [
+    {
+      "id": "w_1",
+      "name": "Avon 1-H",
+      "target_tank_id": "tank_a",
+      "water_rate_bbl_per_hr": 25.0,
+      "oil_margin_per_bbl_water": 32.50,
+      "status": "PRODUCING"
+    },
+    {
+      "id": "w_7",
+      "name": "Avon 7-H",
+      "target_tank_id": "tank_a",
+      "water_rate_bbl_per_hr": 45.0,
+      "oil_margin_per_bbl_water": 8.20,
+      "status": "PRODUCING"
+    },
+    {
+      "id": "w_12",
+      "name": "Avon 12-H",
+      "target_tank_id": "tank_a",
+      "water_rate_bbl_per_hr": 55.0,
+      "oil_margin_per_bbl_water": 5.40,
+      "status": "PRODUCING"
+    },
+    {
+      "id": "w_15",
+      "name": "Avon 15-H",
+      "target_tank_id": "tank_b",
+      "water_rate_bbl_per_hr": 60.0,
+      "oil_margin_per_bbl_water": 18.00,
+      "status": "PRODUCING"
+    }
+  ],
+  "pipelines": [
+    {
+      "id": "pipe_main",
+      "source_tank_id": "tank_a",
+      "destination": "Regional Disposal 1",
+      "capacity_bbl_per_hr": 200.0,
+      "normal_backpressure_psi": 85.0
+    }
+  ],
+  "disposal_facilities": [
+    {
+      "id": "disp_primary",
+      "name": "Commercial Disposal Hub East",
+      "max_intake_bbl_per_hr": 150.0,
+      "cost_per_bbl": 0.45
+    },
+    {
+      "id": "disp_alternate",
+      "name": "Interconnect Line West",
+      "max_intake_bbl_per_hr": 80.0,
+      "cost_per_bbl": 1.20
+    }
+  ],
+  "operating_costs": {
+    "forced_shutdown_cost_per_hr": 12500.0,
+    "environmental_spill_risk_penalty": 50000.0,
+    "restart_cost": 8000.0,
+    "trucking_haul_cost_per_bbl": 4.50,
+    "truck_capacity_bbl": 130.0,
+    "temporary_storage_setup_cost": 3500.0,
+    "temporary_storage_daily_rate": 1200.0,
+    "default_risk_tolerance_breach_prob": 0.05
+  },
+  "options_catalog": [
+    {
+      "id": "opt_standby_pump",
+      "name": "Start Standby Transfer Pump (P-2)",
+      "lead_time_minutes": 5,
+      "flow_delta_bbl_per_hr": 120.0,
+      "fixed_cost": 250.0,
+      "variable_cost_per_hr": 45.0,
+      "requires_equipment": "p_2"
+    },
+    {
+      "id": "opt_reroute_flow",
+      "name": "Reroute Flow to Tank B",
+      "lead_time_minutes": 10,
+      "flow_delta_bbl_per_hr": 70.0,
+      "fixed_cost": 150.0,
+      "variable_cost_per_hr": 0.0,
+      "target_tank_id": "tank_b"
+    },
+    {
+      "id": "opt_curtail_wells",
+      "name": "Curtail Lowest Margin Wells (W-7, W-12)",
+      "lead_time_minutes": 20,
+      "flow_delta_bbl_per_hr": -100.0,
+      "fixed_cost": 0.0,
+      "variable_cost_per_hr": 668.0,
+      "wells_affected": ["w_7", "w_12"]
+    },
+    {
+      "id": "opt_alternate_disposal",
+      "name": "Open Alternate Disposal Interconnect",
+      "lead_time_minutes": 20,
+      "flow_delta_bbl_per_hr": 80.0,
+      "fixed_cost": 500.0,
+      "variable_cost_per_hr": 96.0,
+      "facility_id": "disp_alternate"
+    },
+    {
+      "id": "opt_dispatch_trucks",
+      "name": "Dispatch Emergency Water Trucks (2 Units)",
+      "lead_time_minutes": 60,
+      "flow_delta_bbl_per_hr": 65.0,
+      "fixed_cost": 1170.0,
+      "variable_cost_per_hr": 585.0
+    },
+    {
+      "id": "opt_temp_storage",
+      "name": "Mobilize Temporary Frac Tanks",
+      "lead_time_minutes": 180,
+      "flow_delta_bbl_per_hr": 0.0,
+      "volume_added_bbl": 500.0,
+      "fixed_cost": 4700.0,
+      "variable_cost_per_hr": 0.0
+    },
+    {
+      "id": "opt_shutdown",
+      "name": "Emergency Forced Wellhead Shutdown (Baseline)",
+      "lead_time_minutes": 0,
+      "flow_delta_bbl_per_hr": 0.0,
+      "fixed_cost": 8000.0,
+      "variable_cost_per_hr": 12500.0
+    }
+  ]
+}
