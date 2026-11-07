@@ -291,3 +291,4 @@ def evaluate_next_best_checks(
     # Sort descending by efficiency score (highest information gain per cost)
     evaluated_checks.sort(key=lambda x: x.efficiency_score, reverse=True)
     return evaluated_checks
+

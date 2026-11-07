@@ -306,3 +306,4 @@ def evaluate_all_plans_and_deadlines(
         operator_risk_limit=risk_limit,
         baseline_shutdown_cost_usd=total_shutdown_penalty,
     )
+

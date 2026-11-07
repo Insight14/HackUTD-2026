@@ -76,3 +76,4 @@ async def run_engine_cycle():
     """Run full decision engine cycle against live simulator state and sync to SpacetimeDB."""
     state = simulator.step(dt_seconds=0.0)
     return decision_engine.run_full_engine_cycle(state.model_dump(), sync_to_spacetimedb=True)
+

@@ -1,7 +1,7 @@
 """FastAPI Backend Entrypoint for Tidewatch."""
 import json
 import asyncio
-import json
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,25 +9,49 @@ from backend.app.config import settings
 from backend.app.api.simulator import router as simulator_router, simulator, broadcast_state
 from backend.app.api.spacetimedb import router as spacetimedb_router
 from backend.app.api.decision_engine import router as engine_router
-
-
+from backend.app.api.tiger_data import router as telemetry_router
+from backend.app.integrations.tiger_data import tiger_data_adapter, TelemetryPoint
 
 _background_ticker_task = None
 
 async def _simulation_tick_loop():
-    """Background ticker advancing simulation time every second."""
+    """Background ticker advancing simulation time and ingesting time-series telemetry."""
     try:
         while True:
             await asyncio.sleep(1.0)
             state = simulator.step(dt_seconds=1.0)
             await broadcast_state(state)
+
+            # Ingest live telemetry into Tiger Data store
+            tank_a = next((t for t in state.tanks if t.id == "tank_a"), None)
+            p1 = next((p for p in state.pumps if p.id == "p_1"), None)
+            if tank_a and p1:
+                tiger_data_adapter.ingest_telemetry(
+                    TelemetryPoint(
+                        timestamp=datetime.now(timezone.utc),
+                        tank_id="tank_a",
+                        level_bbl=tank_a.current_level_bbl,
+                        fill_fraction=tank_a.fill_fraction,
+                        inflow_bbl_per_hr=tank_a.inflow_bbl_per_hr,
+                        outflow_bbl_per_hr=tank_a.outflow_bbl_per_hr,
+                        net_rate_bbl_per_hr=tank_a.net_rate_bbl_per_hr,
+                        pump_id="p_1",
+                        pump_status=p1.status,
+                        pump_discharge_psi=p1.discharge_pressure_psi,
+                        pump_vibration_rms=p1.vibration_rms,
+                        is_synthetic=True,
+                    )
+                )
     except asyncio.CancelledError:
         pass
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _background_ticker_task
     print(f"Starting {settings.app_name} in {settings.environment} mode.")
+    # Initialize Tiger Data time-series connection
+    await tiger_data_adapter.connect()
     _background_ticker_task = asyncio.create_task(_simulation_tick_loop())
     yield
     if _background_ticker_task:
@@ -52,6 +76,8 @@ app.add_middleware(
 app.include_router(simulator_router)
 app.include_router(spacetimedb_router)
 app.include_router(engine_router)
+app.include_router(telemetry_router)
+
 
 
 

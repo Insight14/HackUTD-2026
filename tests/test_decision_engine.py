@@ -175,3 +175,4 @@ def test_naive_bayes_sensor_fault_diagnosis():
     assert diag.top_hypothesis.id == "sensor_fault"
     assert diag.top_hypothesis.probability > 0.60
     assert "Hand-Gauge Tank A" in diag.next_best_check.name or "Discharge" in diag.next_best_check.name
+
