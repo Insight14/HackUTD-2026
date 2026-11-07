@@ -14,7 +14,35 @@ import {
   FileText,
   DollarSign,
   PlusCircle,
+  Bot,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
+
+interface ToolChip {
+  tool_name: string;
+  parameter_name: string;
+  value: any;
+}
+
+interface ToolTraceItem {
+  tool_name: string;
+  arguments: Record<string, any>;
+  output: Record<string, any>;
+  success: boolean;
+  error?: string;
+}
+
+interface AgentResponse {
+  provider: string;
+  plain_language_explanation: string;
+  cited_tool_chips: ToolChip[];
+  tool_execution_trace: ToolTraceItem[];
+  safety_boundary_enforced: boolean;
+  can_approve_or_actuate: boolean;
+}
+
 
 interface TankState {
   id: string;
@@ -137,6 +165,24 @@ export default function App() {
   const [notification, setNotification] = useState<string | null>(null);
   const [newNoteText, setNewNoteText] = useState('');
   const [showNoteModal, setShowNoteModal] = useState(false);
+  const [agentResponse, setAgentResponse] = useState<AgentResponse | null>(null);
+  const [agentLoading, setAgentLoading] = useState(false);
+  const [showTrace, setShowTrace] = useState(false);
+
+  const handleRequestBriefing = async () => {
+    setAgentLoading(true);
+    try {
+      const res = await fetch('/api/agent/explain', { method: 'POST' });
+      const data = await res.json();
+      setAgentResponse(data);
+      showToast('AI Briefing generated with verified tool citations.');
+    } catch (err) {
+      showToast('Failed to fetch AI explanation');
+    } finally {
+      setAgentLoading(false);
+    }
+  };
+
 
   const simWsRef = useRef<WebSocket | null>(null);
   const stdbWsRef = useRef<WebSocket | null>(null);
@@ -607,7 +653,94 @@ export default function App() {
           </div>
         </div>
 
+        {/* NVIDIA Nemotron AI Copilot & Tool Execution Trace Panel */}
+        <div className="bg-[#121A27] border-2 border-indigo-900/60 rounded-xl p-5 shadow-xl">
+          <div className="flex justify-between items-center mb-3">
+            <div className="flex items-center gap-2">
+              <Bot className="w-5 h-5 text-indigo-400" />
+              <h2 className="text-sm font-bold tracking-wider text-slate-100 uppercase font-mono">
+                AI OPERATIONAL ASSISTANT (NVIDIA NEMOTRON)
+              </h2>
+              <span className="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800/60 text-[10px] font-mono font-bold">
+                {agentResponse?.provider ?? 'TOOL-GROUNDED PROVIDER'}
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleRequestBriefing}
+                disabled={agentLoading}
+                className="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-mono font-bold flex items-center gap-1.5 shadow transition-all active:scale-95 disabled:opacity-50"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                {agentLoading ? 'Executing Tools...' : 'Generate AI Briefing'}
+              </button>
+            </div>
+          </div>
+
+          {agentResponse ? (
+            <div className="space-y-4 font-mono text-xs">
+              {/* Plain Language Explanation */}
+              <div className="bg-slate-900/80 border border-slate-800 rounded-lg p-4 text-slate-200 leading-relaxed whitespace-pre-line">
+                {agentResponse.plain_language_explanation}
+              </div>
+
+              {/* Cited Tool Chips */}
+              <div>
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
+                  Verified Tool Citations (Grounding Evidence)
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {agentResponse.cited_tool_chips.map((chip, idx) => (
+                    <span
+                      key={idx}
+                      className="px-2 py-1 rounded bg-slate-900 border border-indigo-800/50 text-[11px] text-indigo-300 flex items-center gap-1"
+                    >
+                      <strong className="text-slate-400 font-normal">[{chip.tool_name}]</strong>
+                      <span>{chip.parameter_name}:</span>
+                      <strong className="text-white">{chip.value}</strong>
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tool Execution Trace Toggle */}
+              <div className="pt-2 border-t border-slate-800/80">
+                <button
+                  onClick={() => setShowTrace(!showTrace)}
+                  className="text-slate-400 hover:text-slate-200 text-xs font-mono flex items-center gap-1.5 transition-colors"
+                >
+                  {showTrace ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  <span>{showTrace ? 'Hide Tool Execution Trace' : `View Tool Execution Trace (${agentResponse.tool_execution_trace.length} tools executed)`}</span>
+                </button>
+
+                {showTrace && (
+                  <div className="mt-3 space-y-2 max-h-80 overflow-y-auto pr-1">
+                    {agentResponse.tool_execution_trace.map((tr, idx) => (
+                      <div key={idx} className="bg-slate-950 p-2.5 rounded border border-slate-800 text-[11px]">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="font-bold text-cyan-400">Step {idx + 1}: {tr.tool_name}()</span>
+                          <span className={`text-[10px] font-bold ${tr.success ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {tr.success ? 'SUCCESS' : 'FAILED'}
+                          </span>
+                        </div>
+                        <pre className="text-[10px] text-slate-400 bg-slate-900/60 p-1.5 rounded overflow-x-auto">
+                          {JSON.stringify(tr.output, null, 2)}
+                        </pre>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500 font-mono italic">
+              Click &quot;Generate AI Briefing&quot; to execute deterministic backend tools, evaluate MongoDB SOP runbooks, and generate a verified plain-language incident summary.
+            </p>
+          )}
+        </div>
+
         {/* Bottom Status Bar: Cost of Waiting & Shift Handoff */}
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-[#121A27] border border-slate-800 rounded-lg p-4 flex items-center justify-between font-mono text-xs">
             <span className="text-slate-400 flex items-center gap-1.5">

@@ -1,0 +1,128 @@
+{
+  "runbooks": [
+    {
+      "id": "sop_transfer_pump_failure",
+      "title": "SOP-PW-101: Primary Transfer Pump Trip or Mechanical Failure",
+      "category": "EQUIPMENT_FAILURE",
+      "tags": ["pump", "p-1", "trip", "standby", "outflow_loss"],
+      "facility": "Avon Gathering Station",
+      "steps": [
+        "1. Confirm zero discharge flow and loss of discharge pressure (<15 psi) on primary transfer pump P-1.",
+        "2. Verify standby transfer pump P-2 status is STANDBY / HEALTHY and isolation valves are open.",
+        "3. Check gathering tank fill level and verify decision deadline before tank high-high threshold is reached.",
+        "4. If decision deadline allows, execute start sequence for standby pump P-2 via control console.",
+        "5. If standby pump P-2 is unavailable or fails to start, immediately initiate value-ranked well curtailment (SOP-PW-204).",
+        "6. Dispatch field technician to inspect P-1 local disconnect, motor bearings, and seal flush."
+      ],
+      "safety_warnings": [
+        "DO NOT attempt to restart tripped pump without visual local inspection if breaker tripped on overcurrent.",
+        "Ensure pipeline header pressure is below 110 psi before bringing standby pump on line."
+      ]
+    },
+    {
+      "id": "sop_high_inflow_curtailment",
+      "title": "SOP-PW-204: Value-Ranked Wellhead Water Curtailment Protocol",
+      "category": "INFLOW_SURGE",
+      "tags": ["curtailment", "wellhead", "water_cut", "oil_margin", "surge"],
+      "facility": "Avon Gathering Station",
+      "steps": [
+        "1. Identify active producing wells routed to Gathering Tank A.",
+        "2. Query economic ranking for wells ordered by lowest oil margin per barrel of produced water.",
+        "3. Curtail Avon 12-H (W-12, margin $5.40/bbl water) by 80% to achieve immediate 44 bbl/h reduction.",
+        "4. If additional buffer is required, curtail Avon 7-H (W-7, margin $8.20/bbl water) to achieve 36 bbl/h reduction.",
+        "5. Preserve high-oil producer Avon 1-H (W-1, margin $32.50/bbl water) online unless total station shutdown is mandatory.",
+        "6. Notify production foreman and record deferred production barrels in shift handoff."
+      ],
+      "safety_warnings": [
+        "Choke adjustments must be executed gradually over 15-20 minutes to prevent sand bridging at wellhead."
+      ]
+    },
+    {
+      "id": "sop_sensor_validation_tape",
+      "title": "SOP-PW-305: Ultrasonic Sensor Verification & Manual Gauge Tape",
+      "category": "SENSOR_FAULT",
+      "tags": ["sensor", "ultrasonic", "gauge", "discrepancy", "drift", "foam"],
+      "facility": "Avon Gathering Station",
+      "steps": [
+        "1. Check 3-way sensor trust panel. Identify whether ultrasonic, optical camera, or mass-balance is the outlier.",
+        "2. If chemical defoamer was recently dosed or surface turbulence is high, ultrasonic transducer may read false echo.",
+        "3. Dispatch field technician with calibrated innage tape to manually dip Tank A through thief hatch.",
+        "4. Compare manual tape reading against SCADA ultrasonic reading.",
+        "5. If manual dip confirms camera and mass-balance reading, flag ultrasonic gauge as faulty and widen forecast uncertainty band."
+      ],
+      "safety_warnings": [
+        "Thief hatch dipping requires grounding cable attachment and H2S personal monitor worn on breathing zone."
+      ]
+    },
+    {
+      "id": "sop_alternate_disposal_routing",
+      "title": "SOP-PW-402: Emergency Pipeline Interconnect & Water Trucking",
+      "category": "DISPOSAL_BOTTLENECK",
+      "tags": ["disposal", "interconnect", "trucking", "commercial_hub"],
+      "facility": "Avon Gathering Station",
+      "steps": [
+        "1. Review commercial disposal interconnect line capacity (max 80 bbl/h).",
+        "2. Verify contract tariff rate ($1.20/bbl) and notify pipeline controller.",
+        "3. Open automated motorized valve MOV-201 to divert water to alternate line.",
+        "4. If trucking is required, note that truck dispatch carries 60-minute mobilization lead time.",
+        "5. Water haul trucks must only be ordered if time to high-high threshold exceeds 60 minutes."
+      ],
+      "safety_warnings": [
+        "Verify receiving facility tank ullage before opening interconnect valve."
+      ]
+    }
+  ],
+  "historical_incidents": [
+    {
+      "id": "inc_2025_03_14",
+      "date": "2025-03-14",
+      "time": "03:15:00",
+      "facility": "Avon Station",
+      "summary": "Transfer Pump P-1 VFD failure during night shift",
+      "root_cause": "VFD cooling fan failure caused drive thermal overload trip on P-1.",
+      "observed_symptoms": {
+        "pump_flow": "0 bbl/h",
+        "discharge_pressure": "0 psi",
+        "tank_rate": "+125 bbl/h accumulation",
+        "time_to_high_high": "41 minutes"
+      },
+      "action_taken": "Operator approved starting standby pump P-2 at 03:22 (7 min after trip). Outflow restored to 120 bbl/h. Curtailment avoided.",
+      "outcome": "Successful recovery. Tank level peaked at 520 bbl (well below 800 bbl threshold). Total response cost $250.",
+      "lessons_learned": "Quick decision to switch to standby pump within 10 minutes saved ~$12,500/hr forced shutdown cost."
+    },
+    {
+      "id": "inc_2024_11_02",
+      "date": "2024-11-02",
+      "time": "22:40:00",
+      "facility": "Avon Station",
+      "summary": "Water-cut surge from Avon 7-H following frac hit",
+      "root_cause": "Offset operator completed stage causing immediate water-cut jump from 45 bbl/h to 110 bbl/h.",
+      "observed_symptoms": {
+        "total_inflow": "190 bbl/h",
+        "pump_capacity": "120 bbl/h",
+        "tank_rate": "+70 bbl/h accumulation"
+      },
+      "action_taken": "Rerouted 70 bbl/h to Tank B buffer while well W-12 was curtailed by 80%.",
+      "outcome": "Station remained balanced without spilling or trucking. Total cost $668.",
+      "lessons_learned": "Value-ranked curtailment of low-margin well W-12 mitigated surge without shutting down high-margin well W-1."
+    },
+    {
+      "id": "inc_2024_08_19",
+      "date": "2024-08-19",
+      "time": "01:10:00",
+      "facility": "Avon Station",
+      "summary": "Ultrasonic gauge false high level reading from defoamer foam",
+      "root_cause": "Overdosing of defoamer surfactant created a 14-inch dense foam layer causing ultrasonic false echo at 72%.",
+      "observed_symptoms": {
+        "ultrasonic_level": "72%",
+        "camera_optical_level": "41%",
+        "flow_balance_level": "42%",
+        "trust_status": "ODD_ONE_OUT (ultrasonic suspect)"
+      },
+      "action_taken": "Console highlighted sensor disagreement and widened P10-P90 band. Field tech dipped tank with gauge tape and confirmed 41.5%. No shutdown needed.",
+      "outcome": "Prevented false emergency shutdown. Saved estimated $20,500 in unnecessary shutdown and truck callout fees.",
+      "lessons_learned": "Trust arbitration between camera and flow balance successfully prevented an unnecessary operator panic shutdown."
+    }
+  ]
+}
+

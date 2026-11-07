@@ -10,7 +10,9 @@ from backend.app.api.simulator import router as simulator_router, simulator, bro
 from backend.app.api.spacetimedb import router as spacetimedb_router
 from backend.app.api.decision_engine import router as engine_router
 from backend.app.api.tiger_data import router as telemetry_router
+from backend.app.api.agent import router as agent_router
 from backend.app.integrations.tiger_data import tiger_data_adapter, TelemetryPoint
+
 
 _background_ticker_task = None
 
@@ -77,6 +79,8 @@ app.include_router(simulator_router)
 app.include_router(spacetimedb_router)
 app.include_router(engine_router)
 app.include_router(telemetry_router)
+app.include_router(agent_router)
+
 
 
 

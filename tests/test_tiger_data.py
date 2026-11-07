@@ -172,3 +172,4 @@ def test_status_and_offline_fallback():
     assert status["fallback_buffer_active"] is True
     assert status["is_synthetic"] is True
     assert status["synthetic_data_label"] == "SYNTHETIC_DATA_LABELED"
+
