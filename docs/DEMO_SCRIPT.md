@@ -134,3 +134,4 @@ Demonstrate multi-operator collaboration across Control Room and Field:
 - Click **"Shift Handoff"** in the top bar.
 - Click **"Draft with AI Assistant"** to auto-generate a structured shift narrative.
 - Click **"Approve & Sign Shift Transfer"** to commit the digital log to SpacetimeDB with tamper-evident audit history.
+
