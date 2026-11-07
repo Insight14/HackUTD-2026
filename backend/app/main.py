@@ -12,6 +12,7 @@ from backend.app.api.decision_engine import router as engine_router
 from backend.app.api.tiger_data import router as telemetry_router
 from backend.app.api.agent import router as agent_router
 from backend.app.api.hardware_vision import router as hardware_vision_router
+from backend.app.api.scenarios import router as scenarios_router
 from backend.app.integrations.tiger_data import tiger_data_adapter, TelemetryPoint
 
 
@@ -83,6 +84,7 @@ app.include_router(engine_router)
 app.include_router(telemetry_router)
 app.include_router(agent_router)
 app.include_router(hardware_vision_router)
+app.include_router(scenarios_router)
 
 
 

@@ -45,6 +45,7 @@ class AvonSimulator:
         # Faults & sensor drift injection
         self.injected_pump_faults: Dict[str, str] = {}
         self.sensor_drifts: Dict[str, float] = {}
+        self.pipeline_restrictions: Dict[str, float] = {}
         self.vision_offline: bool = False
         self.inflow_multiplier: float = 1.0
 
@@ -150,6 +151,7 @@ class AvonSimulator:
         self.simulation_time_seconds = 0.0
         self.injected_pump_faults.clear()
         self.sensor_drifts.clear()
+        self.pipeline_restrictions.clear()
         self.hardware_overrides.clear()
         self.vision_offline = False
         self.inflow_multiplier = 1.0
@@ -193,6 +195,42 @@ class AvonSimulator:
                 self.pumps[pump_id]["actual_flow_bbl_per_hr"] = 0.0
                 self.pumps[pump_id]["discharge_pressure_psi"] = 0.0
                 self.pumps[pump_id]["vibration_rms"] = 0.0
+
+    def set_pump_status(self, pump_id: str, status: str) -> None:
+        """Set specific pump operational status (e.g. MAINTENANCE, STOPPED, RUNNING)."""
+        if pump_id not in self.pumps:
+            raise ValueError(f"Unknown pump '{pump_id}'.")
+        self.pumps[pump_id]["status"] = status
+        if status == "RUNNING":
+            self.pumps[pump_id]["actual_flow_bbl_per_hr"] = self.pumps[pump_id]["rated_flow_bbl_per_hr"]
+            self.pumps[pump_id]["discharge_pressure_psi"] = 85.0
+            self.pumps[pump_id]["vibration_rms"] = 1.2
+        else:
+            self.pumps[pump_id]["actual_flow_bbl_per_hr"] = 0.0
+            self.pumps[pump_id]["discharge_pressure_psi"] = 0.0
+            self.pumps[pump_id]["vibration_rms"] = 0.0
+
+    def set_well_status(self, well_id: str, status: str) -> None:
+        """Update operational status for producing well."""
+        if well_id not in self.wells:
+            raise ValueError(f"Unknown well '{well_id}'.")
+        self.wells[well_id]["status"] = status
+
+    def inject_pipeline_restriction(self, pipeline_id: str, capacity_fraction: float = 0.5) -> None:
+        """Simulate line blockage, choked valve, or downstream restriction."""
+        if pipeline_id not in self.pipelines:
+            raise ValueError(f"Unknown pipeline '{pipeline_id}'.")
+        self.pipeline_restrictions[pipeline_id] = capacity_fraction
+        self.alerts.append(
+            Alert(
+                id=f"alert_{int(self.simulation_time_seconds)}_{pipeline_id}",
+                severity="WARNING",
+                title=f"Discharge Restriction: {self.pipelines[pipeline_id].get('name', pipeline_id)}",
+                message=f"Pipeline capacity choked to {int(capacity_fraction * 100)}%. Backpressure elevated.",
+                pump_id=None,
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+        )
 
     def inject_sensor_drift(self, tank_id: str, drift_fraction: float) -> None:
         """Inject calibration drift or physical sensor fault into ultrasonic gauge."""
@@ -263,14 +301,21 @@ class AvonSimulator:
                 pump["discharge_pressure_psi"] = 0.0
                 pump["vibration_rms"] = 0.0
 
-        # Check downstream pipeline flow constraint
-        total_outflow = sum(tank_outflows.values())
-        max_pipeline_capacity = sum(pipe["capacity_bbl_per_hr"] for pipe in self.pipelines.values())
-        if max_pipeline_capacity > 0 and total_outflow > max_pipeline_capacity:
-            # Throttle outflow proportionally
-            throttle_ratio = max_pipeline_capacity / total_outflow
-            for tid in tank_outflows:
-                tank_outflows[tid] *= throttle_ratio
+        # Check downstream pipeline flow constraint per connected tank
+        for pipe in self.pipelines.values():
+            src_tid = pipe.get("source_tank_id")
+            effective_cap = pipe["capacity_bbl_per_hr"] * self.pipeline_restrictions.get(pipe["id"], 1.0)
+            if src_tid and src_tid in tank_outflows:
+                tank_flow = tank_outflows[src_tid]
+                if effective_cap > 0 and tank_flow > effective_cap:
+                    throttle = effective_cap / tank_flow
+                    tank_outflows[src_tid] *= throttle
+                    # If this pipeline has an active restriction, backpressure spikes on feeding pumps
+                    if pipe["id"] in self.pipeline_restrictions:
+                        for pump in self.pumps.values():
+                            if pump["tank_id"] == src_tid and pump["status"] == "RUNNING":
+                                pump["actual_flow_bbl_per_hr"] = round(pump["actual_flow_bbl_per_hr"] * throttle, 2)
+                                pump["discharge_pressure_psi"] = round(128.0 + self.rng.normal(0, 1.5), 1)
 
         # 3. Mass-Balance Fluid Update
         dt_hours = dt_seconds / 3600.0

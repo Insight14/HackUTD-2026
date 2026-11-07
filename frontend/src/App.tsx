@@ -18,7 +18,11 @@ import {
   Sparkles,
   ChevronDown,
   ChevronUp,
+  Award,
 } from 'lucide-react';
+import { FieldTechView } from './views/FieldTechView';
+import { BenchmarkModal } from './components/BenchmarkModal';
+import { HandoffModal } from './components/HandoffModal';
 
 interface ToolChip {
   tool_name: string;
@@ -168,6 +172,43 @@ export default function App() {
   const [agentResponse, setAgentResponse] = useState<AgentResponse | null>(null);
   const [agentLoading, setAgentLoading] = useState(false);
   const [showTrace, setShowTrace] = useState(false);
+  const [activeScenarioId, setActiveScenarioId] = useState<string | null>(null);
+  const [showBenchmarkModal, setShowBenchmarkModal] = useState(false);
+  const [showHandoffModal, setShowHandoffModal] = useState(false);
+  const [activeView, setActiveView] = useState<'CONSOLE' | 'FIELD_TECH'>('CONSOLE');
+
+  const handleActivateScenario = async (scId: string) => {
+    try {
+      const res = await fetch(`/api/scenarios/activate/${scId}`, { method: 'POST' });
+      if (res.ok) {
+        setActiveScenarioId(scId);
+        showToast(`Activated ${scId.replace(/_/g, ' ').toUpperCase()}`);
+        fetch('/api/spacetimedb/state')
+          .then((r) => r.json())
+          .then((data) => setSharedState(data));
+      }
+    } catch {
+      showToast('Failed to activate scenario');
+    }
+  };
+
+  const handleSignHandoff = async (summary: string) => {
+    try {
+      await fetch('/api/spacetimedb/reducers/add_note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: 'Shift Handoff Sign-off',
+          details: summary,
+          category: 'SHIFT_HANDOFF',
+          user_name: currentUserName,
+        }),
+      });
+      showToast('Shift handoff report signed and synced to SpacetimeDB.');
+    } catch {
+      showToast('Failed to sign handoff');
+    }
+  };
 
   const handleRequestBriefing = async () => {
     setAgentLoading(true);
@@ -192,8 +233,10 @@ export default function App() {
     setCurrentRole(role);
     if (role === 'OPERATOR') {
       setCurrentUserName('R.D. (Control Room)');
+      setActiveView('CONSOLE');
     } else {
       setCurrentUserName('Mike S. (Field Truck 4)');
+      setActiveView('FIELD_TECH');
     }
   };
 
@@ -349,12 +392,16 @@ export default function App() {
     }
   };
 
-  const handleCompleteAction = async (claimId: string) => {
+  const handleCompleteAction = async (claimId: string, notes?: string) => {
     try {
       const res = await fetch('/api/spacetimedb/reducers/complete_action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ claim_id: claimId, completed_by: currentUserName }),
+        body: JSON.stringify({
+          claim_id: claimId,
+          completed_by: currentUserName,
+          notes: notes || 'Verified in field per SOP',
+        }),
       });
       if (res.ok) {
         showToast('Action marked completed.');
@@ -398,6 +445,20 @@ export default function App() {
   const primarySensor = simState?.sensor_readings['tank_a'];
   const p1 = simState?.pumps.find((p) => p.id === 'p_1');
   const recommendedPlan = sharedState?.plans.find((p) => p.is_recommended) ?? sharedState?.plans[0];
+
+  if (activeView === 'FIELD_TECH') {
+    return (
+      <FieldTechView
+        currentUser={currentUserName}
+        claims={sharedState?.action_claims || []}
+        onClaimAction={(id) => handleClaimAction(id, 'Field Inspection / Mitigation')}
+        onCompleteAction={(id, notes) => handleCompleteAction(id, notes)}
+        tankLevelPercent={primaryTank?.fill_fraction ? primaryTank.fill_fraction * 100 : 46.2}
+        systemStatus={simState?.status || 'NORMAL'}
+        onBackToConsole={() => handleRoleSwitch('OPERATOR')}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0B0F17] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30">
@@ -456,6 +517,60 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* Top Scripted Scenarios & Benchmarks Toolbar */}
+      <div className="bg-[#0B1019] border-b border-slate-800 px-6 py-2 flex items-center justify-between text-xs font-mono overflow-x-auto">
+        <div className="flex items-center gap-2">
+          <span className="text-slate-400 font-bold flex items-center gap-1.5">
+            <Play className="w-3.5 h-3.5 text-cyan-400 fill-current" /> SCRIPTED SCENARIOS:
+          </span>
+          {[
+            { id: 'scenario_1_pump_trip', label: 'S1: Overnight Pump Trip' },
+            { id: 'scenario_2_line_restriction', label: 'S2: Line Restriction' },
+            { id: 'scenario_3_sensor_drift', label: 'S3: Sensor Drift (Foam)' },
+            { id: 'scenario_4_water_cut_surge', label: 'S4: Water-Cut Surge' },
+            { id: 'scenario_5_maintenance_contention', label: 'S5: Standby Contention' },
+          ].map((sc) => (
+            <button
+              key={sc.id}
+              onClick={() => handleActivateScenario(sc.id)}
+              className={`px-2.5 py-1 rounded transition-colors whitespace-nowrap text-[11px] ${
+                activeScenarioId === sc.id
+                  ? 'bg-cyan-600 text-white font-bold shadow-sm'
+                  : 'bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              {sc.label}
+            </button>
+          ))}
+          {activeScenarioId && (
+            <button
+              onClick={() => {
+                handleReset();
+                setActiveScenarioId(null);
+              }}
+              className="px-2 py-1 rounded bg-slate-800 text-slate-400 hover:text-slate-200 text-xs flex items-center gap-1 ml-1"
+            >
+              <RotateCcw className="w-3 h-3" /> Reset
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 pl-4">
+          <button
+            onClick={() => setShowBenchmarkModal(true)}
+            className="px-3 py-1 rounded bg-indigo-900/60 border border-indigo-700/80 hover:bg-indigo-800 text-indigo-300 font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap text-[11px]"
+          >
+            <Award className="w-3.5 h-3.5" /> Monte Carlo Benchmark
+          </button>
+          <button
+            onClick={() => setShowHandoffModal(true)}
+            className="px-3 py-1 rounded bg-blue-900/60 border border-blue-700/80 hover:bg-blue-800 text-blue-300 font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap text-[11px]"
+          >
+            <FileText className="w-3.5 h-3.5" /> Shift Handoff
+          </button>
+        </div>
+      </div>
 
       {/* Main Grid */}
       <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6">
@@ -895,6 +1010,17 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Benchmark & Handoff Modals */}
+      <BenchmarkModal isOpen={showBenchmarkModal} onClose={() => setShowBenchmarkModal(false)} />
+      <HandoffModal
+        isOpen={showHandoffModal}
+        onClose={() => setShowHandoffModal(false)}
+        currentUser={currentUserName}
+        onSignHandoff={handleSignHandoff}
+        tankLevelPercent={primaryTank?.fill_fraction ? primaryTank.fill_fraction * 100 : 46.2}
+        openClaimsCount={sharedState?.action_claims.filter((c) => c.status !== 'COMPLETED').length || 0}
+      />
 
       {/* Footer Audit Bar */}
       <footer className="border-t border-slate-800 bg-[#0E1522] px-6 py-3 flex justify-between items-center text-xs text-slate-500 font-mono">

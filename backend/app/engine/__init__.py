@@ -132,7 +132,7 @@ class TidewatchDecisionEngine:
         p_vib = p1.get("vibration_rms", 1.2) if p1 else 1.2
         trust_status = sensor_a.get("trust_status", "THREE_WAY_AGREEMENT")
         suspect = sensor_a.get("suspect_sensor")
-        p2_healthy = p2.get("status") != "FAILED" if p2 else True
+        p2_healthy = (p2.get("status") not in ("FAILED", "MAINTENANCE")) if p2 else True
 
         # 1. Diagnosis
         diag = self.diagnose(

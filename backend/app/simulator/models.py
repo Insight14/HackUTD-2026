@@ -25,7 +25,7 @@ class PumpState(BaseModel):
     rated_flow_bbl_per_hr: float = Field(..., gt=0)
     actual_flow_bbl_per_hr: float = 0.0
     is_standby: bool = False
-    status: Literal["RUNNING", "STOPPED", "FAILED", "STANDBY"] = "STOPPED"
+    status: Literal["RUNNING", "STOPPED", "FAILED", "STANDBY", "MAINTENANCE"] = "STOPPED"
     discharge_pressure_psi: float = 0.0
     vibration_rms: float = 0.0
     power_kw: float = 0.0

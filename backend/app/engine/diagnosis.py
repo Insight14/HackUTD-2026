@@ -46,7 +46,7 @@ PRIORS: Dict[str, float] = {
 # Likelihood of observing pump flow == 0
 LIKELIHOOD_FLOW_ZERO: Dict[str, float] = {
     "pump_failed": 0.98,
-    "discharge_blocked": 0.90,
+    "discharge_blocked": 0.50,
     "downstream_leak": 0.05,
     "inflow_surge": 0.02,
     "sensor_fault": 0.05,
@@ -64,10 +64,10 @@ LIKELIHOOD_PRESSURE_ZERO: Dict[str, float] = {
 # Likelihood of observing high discharge pressure (P > 115 psi)
 LIKELIHOOD_PRESSURE_HIGH: Dict[str, float] = {
     "pump_failed": 0.01,
-    "discharge_blocked": 0.96,
+    "discharge_blocked": 0.98,
     "downstream_leak": 0.01,
-    "inflow_surge": 0.15,
-    "sensor_fault": 0.05,
+    "inflow_surge": 0.01,
+    "sensor_fault": 0.01,
 }
 
 # Likelihood of sensor disagreement (ODD_ONE_OUT where ultrasonic is suspect)
@@ -225,9 +225,9 @@ def evaluate_next_best_checks(
             # If outcome is zero pressure: strongly confirms pump_failed
             # If outcome is high pressure: strongly confirms discharge_blocked
             "outcomes": [
-                {"name": "zero_psi", "p": prob_map.get("pump_failed", 0.3) + 0.1, "entropy_after": 0.45},
-                {"name": "high_psi", "p": prob_map.get("discharge_blocked", 0.2) + 0.05, "entropy_after": 0.50},
-                {"name": "normal_psi", "p": 0.35, "entropy_after": 0.85},
+                {"name": "zero_psi", "p": max(0.05, prob_map.get("pump_failed", 0.1)), "entropy_after": 0.20},
+                {"name": "high_psi", "p": max(0.05, prob_map.get("discharge_blocked", 0.1)), "entropy_after": 0.25},
+                {"name": "normal_psi", "p": max(0.1, 1.0 - prob_map.get("pump_failed", 0.1) - prob_map.get("discharge_blocked", 0.1)), "entropy_after": max(0.4, current_entropy * 0.95)},
             ],
         },
         {
@@ -238,8 +238,8 @@ def evaluate_next_best_checks(
             "duration_min": 12,
             # Resolves sensor_fault vs real physical fluid volume
             "outcomes": [
-                {"name": "tape_matches_ultrasonic", "p": 0.70, "entropy_after": 0.80},
-                {"name": "tape_matches_camera", "p": 0.30, "entropy_after": 0.35},
+                {"name": "tape_confirms_drift", "p": max(0.05, prob_map.get("sensor_fault", 0.1)), "entropy_after": 0.05},
+                {"name": "tape_matches_ultrasonic", "p": max(0.05, 1.0 - prob_map.get("sensor_fault", 0.1)), "entropy_after": 0.35},
             ],
         },
         {
