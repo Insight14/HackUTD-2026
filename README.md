@@ -138,7 +138,36 @@ make build
 make dev
 ```
 
+### 3. Running the Development Stack
+
+**Terminal 1 — Backend API & Decision Engine:**
+```bash
+cd backend
+uvicorn backend.app.main:app --reload --port 8000
+```
+
+**Terminal 2 — Frontend Operator Console:**
+```bash
+cd frontend
+npm run dev
+```
+
+Visit `http://localhost:5173` to view the Tidewatch console.
+
+---
+
 Open your browser to:
 - **Operator Console:** [http://localhost:5173](http://localhost:5173)
 - **FastAPI Interactive Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
 - **Demonstration Walkthrough Guide:** See [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)
+
+---
+
+## Synthetic Data Notice
+
+All costs, flow parameters, fluid volumes, and failure distributions are illustrative defaults modeled after typical Permian Basin produced-water operations. They can be replaced with real EOG field parameters via `config/avon_system.json`.
+
+
+## Phase 8: Interactive CV digital twin
+
+The standalone holographic twin and MediaPipe gesture frontend is in `frontend-cv/`. Run `cd frontend-cv && npm ci && npm run dev`. See [Phase 8 setup](docs/PHASE8.md) and [integration handoff](docs/INTEGRATION.md). The existing operator console remains in `frontend/`.
