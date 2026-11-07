@@ -85,3 +85,4 @@ class SystemState(BaseModel):
     total_inflow_bbl_per_hr: float
     total_outflow_bbl_per_hr: float
     synthetic_label: str = "SYNTHETIC_DATA_LABELED"
+

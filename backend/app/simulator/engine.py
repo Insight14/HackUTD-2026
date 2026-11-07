@@ -413,3 +413,4 @@ class AvonSimulator:
                 return "ACTION_NEEDED"
 
         return "NORMAL"
+

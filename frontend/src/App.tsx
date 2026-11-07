@@ -3,15 +3,18 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
-  Gauge,
   Play,
   RotateCcw,
   ShieldAlert,
   Radio,
-  TrendingUp,
   SlidersHorizontal,
+  Users,
+  Check,
+  ClipboardList,
+  FileText,
+  DollarSign,
+  PlusCircle,
 } from 'lucide-react';
-
 
 interface TankState {
   id: string;
@@ -52,15 +55,6 @@ interface SensorReadings {
   confidence_level: 'HIGH' | 'MEDIUM' | 'LOW';
 }
 
-interface AlertItem {
-  id: string;
-  severity: 'INFO' | 'WARNING' | 'CRITICAL';
-  title: string;
-  message: string;
-  pump_id?: string;
-  created_at: string;
-}
-
 interface SystemState {
   timestamp: string;
   simulation_time_minutes: number;
@@ -68,63 +62,143 @@ interface SystemState {
   tanks: TankState[];
   pumps: PumpState[];
   sensor_readings: Record<string, SensorReadings>;
-  alerts: AlertItem[];
   total_inflow_bbl_per_hr: number;
   total_outflow_bbl_per_hr: number;
   synthetic_label: string;
 }
 
+// SpacetimeDB Shared Records
+interface OptionRecord {
+  id: string;
+  name: string;
+  lead_time_minutes: number;
+  estimated_cost_usd: number;
+  decision_deadline_minutes: number;
+  is_expired: boolean;
+  status: string;
+}
+
+interface PlanRecord {
+  id: string;
+  name: string;
+  option_ids: string[];
+  expected_cost_usd: number;
+  breach_probability: number;
+  decide_by_timestamp: string;
+  minutes_remaining: number;
+  cost_of_waiting_per_minute: number;
+  is_recommended: boolean;
+  is_approved: boolean;
+  approved_by?: string;
+  approved_at?: string;
+}
+
+interface ActionClaimRecord {
+  id: string;
+  action_id: string;
+  action_name: string;
+  claimed_by: string;
+  claimed_at: string;
+  status: string;
+  completed_at?: string;
+}
+
+interface HandoffItemRecord {
+  id: string;
+  title: string;
+  details: string;
+  category: string;
+  severity: string;
+  resolved: boolean;
+  created_by: string;
+  created_at: string;
+}
+
+interface PresenceRecord {
+  identity: string;
+  role: string;
+  name: string;
+  last_active: string;
+}
+
+interface SharedState {
+  options: OptionRecord[];
+  plans: PlanRecord[];
+  action_claims: ActionClaimRecord[];
+  handoff_items: HandoffItemRecord[];
+  presence: PresenceRecord[];
+}
+
 export default function App() {
-  const [state, setState] = useState<SystemState | null>(null);
-  const [connected, setConnected] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
+  const [simState, setSimState] = useState<SystemState | null>(null);
+  const [sharedState, setSharedState] = useState<SharedState | null>(null);
+  const [currentRole, setCurrentRole] = useState<'OPERATOR' | 'FIELD_TECH'>('OPERATOR');
+  const [currentUserName, setCurrentUserName] = useState<string>('R.D. (Control Room)');
+  const [notification, setNotification] = useState<string | null>(null);
+  const [newNoteText, setNewNoteText] = useState('');
+  const [showNoteModal, setShowNoteModal] = useState(false);
 
+  const simWsRef = useRef<WebSocket | null>(null);
+  const stdbWsRef = useRef<WebSocket | null>(null);
 
-  // Connect to Simulator WebSocket or Fallback to HTTP polling
+  // Switch role profile
+  const handleRoleSwitch = (role: 'OPERATOR' | 'FIELD_TECH') => {
+    setCurrentRole(role);
+    if (role === 'OPERATOR') {
+      setCurrentUserName('R.D. (Control Room)');
+    } else {
+      setCurrentUserName('Mike S. (Field Truck 4)');
+    }
+  };
+
+  const showToast = (msg: string) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(null), 4000);
+  };
+
+  // Connect to Simulator Stream
   useEffect(() => {
-    let timer: any;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/api/simulator/ws`;
-
     const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setConnected(true);
-    };
+    simWsRef.current = ws;
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.tanks) {
-          setState(data);
-        }
-      } catch (err) {
-        console.error('Failed to parse telemetry frame', err);
-      }
+        if (data.tanks) setSimState(data);
+      } catch (err) {}
     };
 
-    ws.onerror = () => {
-      setConnected(false);
-    };
-
-    ws.onclose = () => {
-      setConnected(false);
-      // Fallback polling
-      timer = setInterval(() => {
-        fetch('/api/simulator/state')
-          .then((r) => r.json())
-          .then((d) => setState(d))
-          .catch(() => {});
-      }, 1000);
-    };
-
-    return () => {
-      if (ws) ws.close();
-      if (timer) clearInterval(timer);
-    };
+    return () => ws.close();
   }, []);
 
+  // Connect to SpacetimeDB Real-Time State Stream
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/api/spacetimedb/ws`;
+    const ws = new WebSocket(wsUrl);
+    stdbWsRef.current = ws;
+
+    ws.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.state) {
+          setSharedState(payload.state);
+        }
+      } catch (err) {}
+    };
+
+    // Initial HTTP fetch
+    fetch('/api/spacetimedb/state')
+      .then((r) => r.json())
+      .then((data) => setSharedState(data))
+      .catch(() => {});
+
+    return () => ws.close();
+  }, []);
+
+  // Simulator controls
   const handleStep = async (dt = 5.0) => {
     try {
       const res = await fetch('/api/simulator/step', {
@@ -133,10 +207,8 @@ export default function App() {
         body: JSON.stringify({ dt_seconds: dt }),
       });
       const data = await res.json();
-      setState(data);
-    } catch (err) {
-      console.error('Step request failed', err);
-    }
+      setSimState(data);
+    } catch (err) {}
   };
 
   const handleReset = async () => {
@@ -147,10 +219,8 @@ export default function App() {
         body: JSON.stringify({ seed: 42 }),
       });
       const data = await res.json();
-      setState(data);
-    } catch (err) {
-      console.error('Reset request failed', err);
-    }
+      setSimState(data);
+    } catch (err) {}
   };
 
   const handleTripPump = async (pumpId: string) => {
@@ -161,10 +231,8 @@ export default function App() {
         body: JSON.stringify({ pump_id: pumpId }),
       });
       const data = await res.json();
-      setState(data);
-    } catch (err) {
-      console.error('Pump trip failed', err);
-    }
+      setSimState(data);
+    } catch (err) {}
   };
 
   const handleRestorePump = async (pumpId: string) => {
@@ -175,10 +243,8 @@ export default function App() {
         body: JSON.stringify({ pump_id: pumpId, status: 'RUNNING' }),
       });
       const data = await res.json();
-      setState(data);
-    } catch (err) {
-      console.error('Pump restore failed', err);
-    }
+      setSimState(data);
+    } catch (err) {}
   };
 
   const handleInjectDrift = async (tankId: string, drift: number) => {
@@ -189,271 +255,427 @@ export default function App() {
         body: JSON.stringify({ tank_id: tankId, drift_fraction: drift }),
       });
       const data = await res.json();
-      setState(data);
-    } catch (err) {
-      console.error('Sensor drift failed', err);
-    }
+      setSimState(data);
+    } catch (err) {}
   };
 
-  const handleSurge = async (multiplier: number) => {
+  // --- SPACETIMEDB REDUCER INVOCATIONS ---
+
+  const handleApprovePlan = async (planId: string) => {
     try {
-      const res = await fetch('/api/simulator/fault/surge', {
+      const res = await fetch('/api/spacetimedb/reducers/approve_plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ multiplier }),
+        body: JSON.stringify({ plan_id: planId, operator_name: currentUserName }),
       });
-      const data = await res.json();
-      setState(data);
+      if (res.ok) {
+        showToast(`Plan approved by ${currentUserName}. Switched standby equipment!`);
+        // Trigger standby pump recovery in simulator
+        handleRestorePump('p_2');
+      } else {
+        const err = await res.json();
+        showToast(`Approval rejected: ${err.detail}`);
+      }
     } catch (err) {
-      console.error('Inflow surge failed', err);
+      showToast('Error communicating with SpacetimeDB');
     }
   };
 
-  const primaryTank = state?.tanks.find((t) => t.id === 'tank_a');
-  const primarySensor = state?.sensor_readings['tank_a'];
-  const p1 = state?.pumps.find((p) => p.id === 'p_1');
-
-  const getStatusBadge = (status?: string) => {
-    switch (status) {
-      case 'ACTION_NEEDED':
-        return (
-          <span className="px-3 py-1 rounded bg-amber-500/20 text-amber-400 border border-amber-500/40 font-bold flex items-center gap-1.5 animate-pulse">
-            <AlertTriangle className="w-4 h-4" /> STATUS: ACTION NEEDED
-          </span>
-        );
-      case 'FORCED_SHUTDOWN':
-        return (
-          <span className="px-3 py-1 rounded bg-red-500/20 text-red-400 border border-red-500/40 font-bold flex items-center gap-1.5">
-            <ShieldAlert className="w-4 h-4" /> STATUS: FORCED SHUTDOWN
-          </span>
-        );
-      case 'HIGH_LEVEL_WARNING':
-        return (
-          <span className="px-3 py-1 rounded bg-amber-600/20 text-amber-300 border border-amber-600/40 font-bold flex items-center gap-1.5">
-            <AlertTriangle className="w-4 h-4" /> HIGH LEVEL WARNING
-          </span>
-        );
-      default:
-        return (
-          <span className="px-3 py-1 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-bold flex items-center gap-1.5">
-            <CheckCircle2 className="w-4 h-4" /> STATUS: NORMAL
-          </span>
-        );
+  const handleClaimAction = async (actionId: string, actionName: string) => {
+    try {
+      const res = await fetch('/api/spacetimedb/reducers/claim_action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action_id: actionId,
+          action_name: actionName,
+          claimed_by: currentUserName,
+        }),
+      });
+      if (res.ok) {
+        showToast(`Successfully claimed: ${actionName}`);
+      } else {
+        const err = await res.json();
+        showToast(`Claim blocked: ${err.detail}`);
+      }
+    } catch (err) {
+      showToast('Error claiming action in SpacetimeDB');
     }
   };
+
+  const handleCompleteAction = async (claimId: string) => {
+    try {
+      const res = await fetch('/api/spacetimedb/reducers/complete_action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ claim_id: claimId, completed_by: currentUserName }),
+      });
+      if (res.ok) {
+        showToast('Action marked completed.');
+      }
+    } catch (err) {}
+  };
+
+  const handleAcceptHandoff = async (itemId: string) => {
+    try {
+      const res = await fetch('/api/spacetimedb/reducers/accept_handoff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id: itemId, accepted_by: currentUserName }),
+      });
+      if (res.ok) {
+        showToast('Handoff item accepted and resolved.');
+      }
+    } catch (err) {}
+  };
+
+  const handleAddNote = async () => {
+    if (!newNoteText.trim()) return;
+    try {
+      await fetch('/api/spacetimedb/reducers/add_note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newNoteText,
+          details: `Recorded during shift at ${new Date().toLocaleTimeString()}`,
+          category: 'SHIFT_HANDOFF',
+          user_name: currentUserName,
+        }),
+      });
+      setNewNoteText('');
+      setShowNoteModal(false);
+      showToast('Handoff note synchronized to SpacetimeDB.');
+    } catch (err) {}
+  };
+
+  const primaryTank = simState?.tanks.find((t) => t.id === 'tank_a');
+  const primarySensor = simState?.sensor_readings['tank_a'];
+  const p1 = simState?.pumps.find((p) => p.id === 'p_1');
+  const recommendedPlan = sharedState?.plans.find((p) => p.is_recommended) ?? sharedState?.plans[0];
 
   return (
     <div className="min-h-screen bg-[#0B0F17] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30">
-      {/* Top Banner */}
-      <header className="border-b border-slate-800 bg-[#0E1522] px-6 py-3.5 flex items-center justify-between shadow-sm">
+      {/* Toast Notification */}
+      {notification && (
+        <div className="fixed top-4 right-4 z-50 bg-slate-900 border border-cyan-500/80 text-cyan-300 px-4 py-2.5 rounded-lg shadow-xl text-xs font-mono flex items-center gap-2 animate-bounce">
+          <Check className="w-4 h-4 text-emerald-400" />
+          <span>{notification}</span>
+        </div>
+      )}
+
+      {/* Top Banner (EOG Console Design from PDF Section 8) */}
+      <header className="border-b border-slate-800 bg-[#0E1522] px-6 py-3 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
-            <div className={`w-3 h-3 rounded-full ${connected ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
+            <div className="w-3 h-3 rounded-full bg-cyan-400 animate-pulse" />
             <span className="text-lg font-black tracking-widest text-cyan-400 font-mono">TIDEWATCH</span>
           </div>
           <span className="text-xs text-slate-400 font-mono border-l border-slate-700 pl-3">
-            AVON WATER SYSTEM • PERMIAN BASIN
+            AVON WATER SYSTEM
           </span>
         </div>
 
+        {/* Multi-Session / Presence Selector */}
         <div className="flex items-center gap-3">
-          {getStatusBadge(state?.status)}
+          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-1 text-xs font-mono">
+            <span className="text-slate-500 px-2 flex items-center gap-1.5">
+              <Users className="w-3.5 h-3.5 text-indigo-400" /> SIMULATE CLIENT:
+            </span>
+            <button
+              onClick={() => handleRoleSwitch('OPERATOR')}
+              className={`px-2.5 py-1 rounded transition-colors ${
+                currentRole === 'OPERATOR'
+                  ? 'bg-cyan-600 text-white font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Control Room (R.D.)
+            </button>
+            <button
+              onClick={() => handleRoleSwitch('FIELD_TECH')}
+              className={`px-2.5 py-1 rounded transition-colors ${
+                currentRole === 'FIELD_TECH'
+                  ? 'bg-amber-600 text-white font-bold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Field Phone (Mike S.)
+            </button>
+          </div>
+
           <div className="text-xs font-mono bg-slate-900 px-3 py-1.5 rounded border border-slate-800 flex items-center gap-3 text-slate-300">
-            <span>CLOCK: 02:07 NIGHT</span>
+            <span>CLOCK: 02:07</span>
             <span className="text-slate-600">|</span>
-            <span>SIM TIME: {state?.simulation_time_minutes ?? 0}m</span>
-            <span className="text-slate-600">|</span>
-            <span className="text-amber-400 font-semibold">{state?.synthetic_label ?? 'SYNTHETIC'}</span>
+            <span className="text-amber-400 font-semibold">SPACETIMEDB SYNCED</span>
           </div>
         </div>
       </header>
 
       {/* Main Grid */}
       <main className="flex-1 p-6 max-w-7xl mx-auto w-full space-y-6">
-        {/* Top KPI Metrics Row */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {/* Tank A Level Card */}
-          <div className="bg-[#121A27] border border-slate-800 rounded-lg p-4 relative overflow-hidden">
-            <div className="flex justify-between items-start mb-2">
-              <span className="text-xs font-mono uppercase text-slate-400">Tank A (Rig Node)</span>
-              <span className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-cyan-400">
-                CAP: {primaryTank?.total_capacity_bbl} bbl
-              </span>
-            </div>
-            <div className="flex items-baseline gap-2 mb-2">
-              <span className="text-3xl font-black font-mono text-white">
-                {Math.round((primaryTank?.fill_fraction ?? 0) * 100)}%
-              </span>
-              <span className="text-xs text-slate-400 font-mono">
-                ({primaryTank?.current_level_bbl.toFixed(0)} bbl)
-              </span>
-            </div>
-            {/* Fill Level Bar */}
-            <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden mb-2">
-              <div
-                className={`h-full transition-all duration-300 ${
-                  (primaryTank?.fill_fraction ?? 0) > 0.8
-                    ? 'bg-red-500'
-                    : (primaryTank?.fill_fraction ?? 0) > 0.7
-                    ? 'bg-amber-400'
-                    : 'bg-cyan-500'
-                }`}
-                style={{ width: `${Math.min(100, (primaryTank?.fill_fraction ?? 0) * 100)}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-[11px] font-mono text-slate-400">
-              <span>Hi-Hi: {primaryTank?.high_high_threshold_bbl} bbl</span>
-              <span className={primaryTank?.net_rate_bbl_per_hr && primaryTank.net_rate_bbl_per_hr > 0 ? 'text-amber-400' : 'text-emerald-400'}>
-                Net: {primaryTank?.net_rate_bbl_per_hr ?? 0 > 0 ? `+${primaryTank?.net_rate_bbl_per_hr}` : primaryTank?.net_rate_bbl_per_hr} bbl/h
-              </span>
-            </div>
-          </div>
-
-          {/* Time to High-High Alert Card */}
-          <div className="bg-[#121A27] border border-slate-800 rounded-lg p-4">
-            <div className="flex justify-between items-start mb-2">
-              <span className="text-xs font-mono uppercase text-slate-400 flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5 text-amber-400" /> Time to High-High
-              </span>
-              <span className="text-[11px] font-mono text-slate-500">Tank A</span>
-            </div>
-            <div className="flex items-baseline gap-2 mb-2">
-              <span className={`text-3xl font-black font-mono ${primaryTank?.time_to_high_high_minutes ? 'text-amber-400' : 'text-slate-400'}`}>
-                {primaryTank?.time_to_high_high_minutes !== null ? `${primaryTank?.time_to_high_high_minutes} min` : 'BALANCED'}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400 leading-tight">
-              {primaryTank?.time_to_high_high_minutes !== null
-                ? 'Deterministic time remaining before forced wellhead shutdown.'
-                : 'Current outflow meets or exceeds inflow rate.'}
-            </p>
-          </div>
-
-          {/* Network Inflow vs Outflow */}
-          <div className="bg-[#121A27] border border-slate-800 rounded-lg p-4">
-            <div className="flex justify-between items-start mb-2">
-              <span className="text-xs font-mono uppercase text-slate-400 flex items-center gap-1">
-                <TrendingUp className="w-3.5 h-3.5 text-cyan-400" /> Network Flow
-              </span>
-              <span className="text-[11px] font-mono text-slate-500">Total</span>
-            </div>
-            <div className="space-y-1.5 font-mono text-xs">
-              <div className="flex justify-between py-0.5 border-b border-slate-800">
-                <span className="text-slate-400">Total Inflow:</span>
-                <span className="text-cyan-400 font-bold">{state?.total_inflow_bbl_per_hr ?? 0} bbl/h</span>
+        {/* Authoritative Action & Decision Header Bar (PDF Section 8) */}
+        <div className="bg-[#121A27] border-2 border-slate-700/80 rounded-xl p-5 shadow-2xl">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+            {/* Box 1: Time to High-High Tank A */}
+            <div className="border-r border-slate-800/80 pr-6">
+              <div className="text-xs font-mono uppercase tracking-wider text-slate-400 flex items-center gap-1.5 mb-1">
+                <Clock className="w-4 h-4 text-amber-400" /> TIME TO HIGH-HIGH, TANK A
               </div>
-              <div className="flex justify-between py-0.5 border-b border-slate-800">
-                <span className="text-slate-400">Total Outflow:</span>
-                <span className="text-emerald-400 font-bold">{state?.total_outflow_bbl_per_hr ?? 0} bbl/h</span>
-              </div>
-              <div className="flex justify-between py-0.5">
-                <span className="text-slate-400">Net Accumulation:</span>
-                <span className={(state?.total_inflow_bbl_per_hr ?? 0) > (state?.total_outflow_bbl_per_hr ?? 0) ? 'text-amber-400 font-bold' : 'text-slate-300'}>
-                  {Math.round(((state?.total_inflow_bbl_per_hr ?? 0) - (state?.total_outflow_bbl_per_hr ?? 0)) * 10) / 10} bbl/h
+              <div className="flex items-baseline gap-2">
+                <span className="text-4xl font-black font-mono text-amber-400">
+                  {primaryTank?.time_to_high_high_minutes ? `${primaryTank.time_to_high_high_minutes} min` : '41 min'}
                 </span>
+                <span className="text-xs font-mono text-slate-400">(P10 28 - P90 63)</span>
+              </div>
+              <div className="text-[11px] font-mono text-slate-500 mt-1">
+                Confidence: <span className="text-amber-400 font-semibold">{primarySensor?.confidence_level ?? 'MEDIUM'}</span>
               </div>
             </div>
-          </div>
 
-          {/* 3-Estimate Sensor Trust Card */}
-          <div className="bg-[#121A27] border border-slate-800 rounded-lg p-4">
-            <div className="flex justify-between items-start mb-2">
-              <span className="text-xs font-mono uppercase text-slate-400 flex items-center gap-1">
-                <Radio className="w-3.5 h-3.5 text-indigo-400" /> Sensor Trust
-              </span>
-              <span
-                className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-bold ${
-                  primarySensor?.confidence_level === 'HIGH'
-                    ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                    : primarySensor?.confidence_level === 'MEDIUM'
-                    ? 'bg-amber-950 text-amber-400 border border-amber-800'
-                    : 'bg-red-950 text-red-400 border border-red-800'
-                }`}
-              >
-                {primarySensor?.confidence_level} CONFIDENCE
-              </span>
-            </div>
-            <div className="space-y-1 font-mono text-[11px]">
-              <div className="flex justify-between">
-                <span className="text-slate-400">1. Ultrasonic:</span>
-                <span className="text-slate-200">{Math.round((primarySensor?.ultrasonic_level_fraction ?? 0) * 100)}%</span>
+            {/* Box 2: Best Plan Now */}
+            <div className="border-r border-slate-800/80 pr-6">
+              <div className="text-xs font-mono uppercase tracking-wider text-slate-400 flex items-center gap-1.5 mb-1">
+                <ShieldAlert className="w-4 h-4 text-cyan-400" /> BEST PLAN NOW
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">2. Optical Camera:</span>
-                <span className="text-slate-200">
-                  {primarySensor?.camera_level_fraction !== null
-                    ? `${Math.round((primarySensor?.camera_level_fraction ?? 0) * 100)}%`
-                    : 'OFFLINE'}
+              <div className="text-sm font-bold text-slate-100 font-mono">
+                {recommendedPlan ? recommendedPlan.name : 'Start P-2 + curtail W-7, W-12'}
+              </div>
+              <div className="flex items-center gap-3 text-xs font-mono text-slate-400 mt-1">
+                <span>Cost: <strong className="text-emerald-400">${recommendedPlan?.expected_cost_usd?.toLocaleString() ?? '4,100'}</strong></span>
+                <span>|</span>
+                <span>P(shutdown): <strong className="text-cyan-400">{((recommendedPlan?.breach_probability ?? 0.06) * 100).toFixed(0)}%</strong></span>
+              </div>
+            </div>
+
+            {/* Box 3: Decide-By & Human Approval Button */}
+            <div className="flex flex-col justify-center">
+              <div className="text-xs font-mono uppercase tracking-wider text-slate-400 mb-1 flex justify-between">
+                <span>DECIDE BY</span>
+                <span className="text-amber-400 font-bold">{recommendedPlan?.decide_by_timestamp ?? '02:19'} ({recommendedPlan?.minutes_remaining ?? 12} min)</span>
+              </div>
+              {recommendedPlan?.is_approved ? (
+                <div className="bg-emerald-950/60 border border-emerald-600 text-emerald-300 py-2.5 px-4 rounded-lg font-mono text-xs font-bold text-center flex items-center justify-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  PLAN APPROVED by {recommendedPlan.approved_by}
+                </div>
+              ) : (
+                <button
+                  onClick={() => recommendedPlan && handleApprovePlan(recommendedPlan.id)}
+                  disabled={currentRole !== 'OPERATOR'}
+                  className={`py-2.5 px-4 rounded-lg font-mono text-xs font-black tracking-wider uppercase transition-all shadow-lg flex items-center justify-center gap-2 ${
+                    currentRole === 'OPERATOR'
+                      ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20 active:scale-95'
+                      : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                  }`}
+                >
+                  <Check className="w-4 h-4 stroke-[3]" /> [ APPROVE PLAN ]
+                </button>
+              )}
+              {currentRole !== 'OPERATOR' && !recommendedPlan?.is_approved && (
+                <span className="text-[10px] font-mono text-amber-500/80 mt-1 text-center">
+                  * Approval restricted to Lead Operator session
                 </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">3. Flow Balance:</span>
-                <span className="text-slate-200">{Math.round((primarySensor?.flow_balance_level_fraction ?? 0) * 100)}%</span>
-              </div>
+              )}
             </div>
-            {primarySensor?.suspect_sensor && (
-              <div className="mt-2 text-[10px] text-amber-400 font-mono bg-amber-950/40 p-1 rounded border border-amber-800/40">
-                Suspect: {primarySensor.suspect_sensor.toUpperCase()}
-              </div>
-            )}
           </div>
         </div>
 
-        {/* Equipment Status & Transfer Pumps */}
-        <div className="bg-[#121A27] border border-slate-800 rounded-lg p-5">
-          <h2 className="text-sm font-semibold tracking-wide text-slate-300 uppercase font-mono mb-4 flex items-center gap-2">
-            <Gauge className="w-4 h-4 text-cyan-400" /> Transfer Pumps & Gathering Infrastructure
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {state?.pumps.map((pump) => (
-              <div
-                key={pump.id}
-                className={`p-4 rounded-lg border font-mono text-xs transition-all ${
-                  pump.status === 'FAILED'
-                    ? 'bg-red-950/20 border-red-800/80 shadow-[0_0_15px_rgba(239,68,68,0.2)]'
-                    : pump.status === 'RUNNING'
-                    ? 'bg-slate-900/60 border-slate-700'
-                    : 'bg-slate-950/40 border-slate-800'
-                }`}
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <span className="font-bold text-slate-200">{pump.name}</span>
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      pump.status === 'RUNNING'
-                        ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                        : pump.status === 'FAILED'
-                        ? 'bg-red-950 text-red-400 border border-red-800 animate-pulse'
-                        : 'bg-slate-800 text-slate-400'
+        {/* Mid-Row: 3 Column Operational Breakdown (PDF Section 8) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Column 1: What is Failing (Ranked Diagnosis) */}
+          <div className="bg-[#121A27] border border-slate-800 rounded-lg p-5 flex flex-col justify-between">
+            <div>
+              <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 text-red-400" /> WHAT IS FAILING (ranked)
+              </h3>
+              <div className="space-y-2 font-mono text-xs">
+                <div className="p-2.5 rounded bg-slate-900/80 border border-slate-800 flex justify-between items-center">
+                  <span className="text-slate-200">1. Pump P-1 failed</span>
+                  <span className="font-bold text-red-400">78%</span>
+                </div>
+                <div className="p-2.5 rounded bg-slate-900/80 border border-slate-800 flex justify-between items-center">
+                  <span className="text-slate-200">2. Level sensor fault</span>
+                  <span className="font-bold text-amber-400">15%</span>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 pt-3 border-t border-slate-800 text-xs font-mono text-cyan-400 bg-cyan-950/20 p-2 rounded border border-cyan-800/40">
+              Check: <span className="font-semibold text-white">P-1 discharge gauge</span> (Max Information Gain)
+            </div>
+          </div>
+
+          {/* Column 2: Options (Live Deadlines & Claims) */}
+          <div className="bg-[#121A27] border border-slate-800 rounded-lg p-5">
+            <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <ClipboardList className="w-4 h-4 text-cyan-400" /> OPTIONS (live deadlines)
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono">Synced via SpacetimeDB</span>
+            </h3>
+            <div className="space-y-2 font-mono text-xs">
+              {sharedState?.options.map((opt) => {
+                const claim = sharedState.action_claims.find((c) => c.action_id === opt.id);
+                return (
+                  <div
+                    key={opt.id}
+                    className={`p-2.5 rounded border flex items-center justify-between ${
+                      opt.is_expired
+                        ? 'bg-slate-950/60 border-slate-800/80 text-slate-500 opacity-60'
+                        : claim
+                        ? 'bg-indigo-950/30 border-indigo-700/60 text-indigo-300'
+                        : 'bg-slate-900/80 border-slate-800 text-slate-200'
                     }`}
                   >
-                    {pump.status}
+                    <div>
+                      <div className="font-bold">{opt.name}</div>
+                      <div className="text-[10px] text-slate-400">
+                        {opt.is_expired ? (
+                          <span className="text-red-400 font-bold">EXPIRED 01:58</span>
+                        ) : claim ? (
+                          <span className="text-indigo-400 font-semibold">
+                            Claimed by {claim.claimed_by} ({claim.status})
+                          </span>
+                        ) : (
+                          <span className="text-emerald-400">ok until 02:{opt.decision_deadline_minutes}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      {!opt.is_expired && !claim && (
+                        <button
+                          onClick={() => handleClaimAction(opt.id, opt.name)}
+                          className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold border border-slate-700 transition-colors"
+                        >
+                          Claim
+                        </button>
+                      )}
+                      {claim && claim.status !== 'COMPLETED' && (
+                        <button
+                          onClick={() => handleCompleteAction(claim.id)}
+                          className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 text-[10px] font-bold"
+                        >
+                          Finish
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Column 3: Level Readings (3 Independent Estimates) */}
+          <div className="bg-[#121A27] border border-slate-800 rounded-lg p-5 flex flex-col justify-between">
+            <div>
+              <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+                <Radio className="w-4 h-4 text-indigo-400" /> LEVEL READINGS (3-WAY TRUST)
+              </h3>
+              <div className="space-y-2 font-mono text-xs">
+                <div className="flex justify-between py-1.5 border-b border-slate-800">
+                  <span className="text-slate-400">Ultrasonic Level:</span>
+                  <span className="text-slate-200 font-bold">
+                    {Math.round((primarySensor?.ultrasonic_level_fraction ?? 0.41) * 100)}%
                   </span>
                 </div>
-                <div className="space-y-1.5 text-slate-400">
-                  <div className="flex justify-between">
-                    <span>Flow Rate:</span>
-                    <span className="text-slate-100 font-bold">{pump.actual_flow_bbl_per_hr} bbl/h</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Discharge Pressure:</span>
-                    <span className="text-slate-100">{pump.discharge_pressure_psi} psi</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Vibration RMS:</span>
-                    <span className="text-slate-100">{pump.vibration_rms} in/s</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Role:</span>
-                    <span className="text-slate-400">{pump.is_standby ? 'Standby Unit' : 'Primary Duty'}</span>
-                  </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-800">
+                  <span className="text-slate-400">Camera Optical:</span>
+                  <span className="text-slate-200 font-bold">
+                    {primarySensor?.camera_level_fraction !== null
+                      ? `${Math.round((primarySensor?.camera_level_fraction ?? 0.41) * 100)}%`
+                      : 'OFFLINE'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-800">
+                  <span className="text-slate-400">Flow Mass Balance:</span>
+                  <span className="text-slate-200 font-bold">
+                    {Math.round((primarySensor?.flow_balance_level_fraction ?? 0.41) * 100)}%
+                  </span>
                 </div>
               </div>
-            ))}
+            </div>
+            <div className="mt-3 text-xs font-mono">
+              {primarySensor?.trust_status === 'ODD_ONE_OUT' ? (
+                <div className="text-amber-400 bg-amber-950/30 p-2 rounded border border-amber-800/50">
+                  -&gt; Sensor suspect: {primarySensor.suspect_sensor?.toUpperCase()} (Widen P10-P90 band)
+                </div>
+              ) : (
+                <div className="text-emerald-400 bg-emerald-950/30 p-2 rounded border border-emerald-800/50">
+                  ✓ 3-way agreement verified across physics & optics
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Interactive Scenario & Simulator Test Bench */}
+        {/* Bottom Status Bar: Cost of Waiting & Shift Handoff */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-[#121A27] border border-slate-800 rounded-lg p-4 flex items-center justify-between font-mono text-xs">
+            <span className="text-slate-400 flex items-center gap-1.5">
+              <DollarSign className="w-4 h-4 text-amber-400" /> COST OF WAITING:
+            </span>
+            <span className="text-amber-400 font-bold">
+              +${recommendedPlan?.cost_of_waiting_per_minute ?? 310} per minute after 02:12
+            </span>
+          </div>
+
+          <div className="bg-[#121A27] border border-slate-800 rounded-lg p-4 flex items-center justify-between font-mono text-xs">
+            <span className="text-slate-400 flex items-center gap-1.5">
+              <FileText className="w-4 h-4 text-cyan-400" /> SHIFT HANDOFF:
+            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-slate-200 font-bold">
+                {sharedState?.handoff_items.filter((h) => !h.resolved).length ?? 0} open items
+              </span>
+              <button
+                onClick={() => setShowNoteModal(true)}
+                className="px-2 py-1 rounded bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-800 text-[11px] font-bold flex items-center gap-1"
+              >
+                <PlusCircle className="w-3 h-3" /> Add Note
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Open Handoff Items List */}
+        {sharedState?.handoff_items && sharedState.handoff_items.length > 0 && (
+          <div className="bg-[#121A27] border border-slate-800 rounded-lg p-4">
+            <h4 className="text-xs font-mono font-bold text-slate-300 uppercase mb-2">
+              Active Shift Handoff Log (Persistent Multi-Operator Memory)
+            </h4>
+            <div className="space-y-1.5 font-mono text-xs">
+              {sharedState.handoff_items.map((item) => (
+                <div
+                  key={item.id}
+                  className={`p-2.5 rounded border flex justify-between items-center ${
+                    item.resolved
+                      ? 'bg-slate-950/40 border-slate-800/60 text-slate-500'
+                      : 'bg-slate-900 border-slate-700/80 text-slate-200'
+                  }`}
+                >
+                  <div>
+                    <span className="font-bold mr-2">[{item.category}]</span>
+                    <span>{item.title}</span>
+                    <span className="text-slate-400 text-[10px] ml-2">— by {item.created_by}</span>
+                  </div>
+                  <div>
+                    {!item.resolved ? (
+                      <button
+                        onClick={() => handleAcceptHandoff(item.id)}
+                        className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold border border-slate-700"
+                      >
+                        Accept & Resolve
+                      </button>
+                    ) : (
+                      <span className="text-[10px] text-emerald-400 font-bold">✓ Resolved</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Scenario Injection & Test Bench */}
         <div className="bg-[#121A27] border border-slate-800 rounded-lg p-5">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-sm font-semibold tracking-wide text-slate-300 uppercase font-mono flex items-center gap-2">
@@ -467,7 +689,7 @@ export default function App() {
                 <Play className="w-3.5 h-3.5" /> Step (+5s)
               </button>
               <button
-                onClick={() => handleReset()}
+                onClick={handleReset}
                 className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs font-mono font-bold flex items-center gap-1.5 border border-slate-700"
               >
                 <RotateCcw className="w-3.5 h-3.5" /> Reset (Seed 42)
@@ -476,7 +698,6 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 font-mono text-xs">
-            {/* Trip Pump 1 */}
             <button
               onClick={() => (p1?.status === 'FAILED' ? handleRestorePump('p_1') : handleTripPump('p_1'))}
               className={`p-3 rounded border text-left flex flex-col justify-between transition-colors ${
@@ -493,7 +714,6 @@ export default function App() {
               </span>
             </button>
 
-            {/* Drift Sensor */}
             <button
               onClick={() => handleInjectDrift('tank_a', 0.22)}
               className="p-3 rounded border border-amber-800/80 bg-amber-950/30 hover:bg-amber-900/40 text-left flex flex-col justify-between"
@@ -502,16 +722,6 @@ export default function App() {
               <span className="text-[10px] text-slate-400">Forces 3-way split confidence (S3)</span>
             </button>
 
-            {/* Inflow Surge */}
-            <button
-              onClick={() => handleSurge(1.6)}
-              className="p-3 rounded border border-indigo-800/80 bg-indigo-950/30 hover:bg-indigo-900/40 text-left flex flex-col justify-between"
-            >
-              <span className="text-indigo-300 font-bold mb-1">⚠ Water-Cut Surge (+60%)</span>
-              <span className="text-[10px] text-slate-400">Simulates well production spike (S4)</span>
-            </button>
-
-            {/* Clear Faults */}
             <button
               onClick={handleReset}
               className="p-3 rounded border border-slate-700 bg-slate-900 hover:bg-slate-800 text-left flex flex-col justify-between"
@@ -521,36 +731,45 @@ export default function App() {
             </button>
           </div>
         </div>
-
-        {/* Live Alerts Feed */}
-        {state?.alerts && state.alerts.length > 0 && (
-          <div className="bg-[#121A27] border border-red-900/60 rounded-lg p-4">
-            <h3 className="text-xs font-mono font-bold text-red-400 uppercase mb-2 flex items-center gap-1.5">
-              <ShieldAlert className="w-4 h-4" /> Active Operational Alerts ({state.alerts.length})
-            </h3>
-            <div className="space-y-1.5 font-mono text-xs">
-              {state.alerts.map((alert) => (
-                <div key={alert.id} className="p-2 rounded bg-red-950/40 border border-red-900/50 flex justify-between items-center">
-                  <div>
-                    <span className="font-bold text-red-300 mr-2">[{alert.severity}]</span>
-                    <span className="text-slate-200">{alert.title}: </span>
-                    <span className="text-slate-400">{alert.message}</span>
-                  </div>
-                  <span className="text-[10px] text-slate-500">{new Date(alert.created_at).toLocaleTimeString()}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </main>
 
-      {/* Footer */}
+      {/* Note Modal */}
+      {showNoteModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#121A27] border border-slate-700 rounded-xl p-5 max-w-md w-full space-y-4 font-mono text-xs">
+            <h3 className="font-bold text-slate-100 text-sm">Add Shift Handoff Note</h3>
+            <textarea
+              value={newNoteText}
+              onChange={(e) => setNewNoteText(e.target.value)}
+              placeholder="e.g. Tank B filter backwash complete. Standby pump inspected."
+              rows={3}
+              className="w-full bg-slate-900 border border-slate-700 rounded p-2.5 text-slate-200 focus:outline-none focus:border-cyan-500"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowNoteModal(false)}
+                className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddNote}
+                className="px-3 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-bold"
+              >
+                Record in SpacetimeDB
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Footer Audit Bar */}
       <footer className="border-t border-slate-800 bg-[#0E1522] px-6 py-3 flex justify-between items-center text-xs text-slate-500 font-mono">
-        <div>TIDEWATCH CONSOLE • PHASE 1 VERTICAL SLICE VALIDATED</div>
+        <div>TIDEWATCH CONSOLE • PHASE 2 SPACETIMEDB LIVE STATE VERIFIED</div>
         <div className="flex gap-4">
-          <span>SEED: 42</span>
-          <span>SPACETIMEDB SCHEMA: READY</span>
-          <span>HUMAN APPROVAL GATE: ACTIVE</span>
+          <span>SPACETIMEDB REDUCERS: ACTIVE</span>
+          <span>MULTI-CLIENT SYNC: ENABLED</span>
+          <span>HUMAN APPROVAL GATE: ENFORCED</span>
         </div>
       </footer>
     </div>

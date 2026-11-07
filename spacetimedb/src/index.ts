@@ -1,7 +1,7 @@
 import { schema, table, t } from 'spacetimedb/server';
 
 /**
- * SpacetimeDB Server Module for Tidewatch.
+ * Authoritative SpacetimeDB Module for Tidewatch.
  * Stores shared live operational state across all connected control rooms and field devices.
  */
 const spacetimedb = schema({
@@ -31,7 +31,7 @@ const spacetimedb = schema({
       flow_bbl_per_hr: t.f64(),
       discharge_pressure_psi: t.f64(),
       vibration_rms: t.f64(),
-      is_standby: t.boolean(),
+      is_standby: t.bool(),
       updated_at: t.string(),
     }
   ),
@@ -58,7 +58,7 @@ const spacetimedb = schema({
       message: t.string(),
       tank_id: t.string().optional(),
       pump_id: t.string().optional(),
-      acknowledged: t.boolean(),
+      acknowledged: t.bool(),
       acknowledged_by: t.string().optional(),
       created_at: t.string(),
     }
@@ -84,7 +84,7 @@ const spacetimedb = schema({
       lead_time_minutes: t.i32(),
       estimated_cost_usd: t.f64(),
       decision_deadline_minutes: t.f64(),
-      is_expired: t.boolean(),
+      is_expired: t.bool(),
       status: t.string(), // "AVAILABLE", "EXPIRED", "EXECUTING", "COMPLETED"
     }
   ),
@@ -100,8 +100,8 @@ const spacetimedb = schema({
       decide_by_timestamp: t.string(),
       minutes_remaining: t.f64(),
       cost_of_waiting_per_minute: t.f64(),
-      is_recommended: t.boolean(),
-      is_approved: t.boolean(),
+      is_recommended: t.bool(),
+      is_approved: t.bool(),
       approved_by: t.string().optional(),
       approved_at: t.string().optional(),
     }
@@ -114,7 +114,7 @@ const spacetimedb = schema({
       plan_id: t.string(),
       approved_by: t.string(),
       approved_at: t.string(),
-      status: t.string(), // "PENDING", "APPROVED", "REJECTED", "EXECUTED"
+      status: t.string(), // "APPROVED", "REJECTED"
       notes: t.string().optional(),
     }
   ),
@@ -124,7 +124,8 @@ const spacetimedb = schema({
     {
       id: t.string().primaryKey(),
       action_id: t.string(),
-      claimed_by: t.string(), // Operator / Field tech identity
+      action_name: t.string(),
+      claimed_by: t.string(),
       claimed_at: t.string(),
       status: t.string(), // "CLAIMED", "IN_PROGRESS", "COMPLETED"
       completed_at: t.string().optional(),
@@ -139,7 +140,7 @@ const spacetimedb = schema({
       details: t.string(),
       category: t.string(), // "OPEN_DECISION", "EXPIRED_OPTION", "EQUIPMENT_STATUS"
       severity: t.string(),
-      resolved: t.boolean(),
+      resolved: t.bool(),
       created_by: t.string(),
       created_at: t.string(),
     }
@@ -149,7 +150,7 @@ const spacetimedb = schema({
     { public: true },
     {
       identity: t.string().primaryKey(),
-      role: t.string(), // "CONTROL_ROOM_OPERATOR", "FIELD_TECH", "SUPERVISOR"
+      role: t.string(), // "CONTROL_ROOM_OPERATOR", "FIELD_TECH"
       name: t.string(),
       last_active: t.string(),
     }
@@ -158,15 +159,30 @@ const spacetimedb = schema({
 
 export default spacetimedb;
 
-// --- REDUCERS ---
+// --- LIFECYCLE HOOKS ---
 
+export const init = spacetimedb.init(_ctx => {
+  console.info('Tidewatch SpacetimeDB Module Initialized.');
+});
+
+export const onConnect = spacetimedb.clientConnected(ctx => {
+  console.info(`Operator connected with identity: ${ctx.sender.toHexString()}`);
+});
+
+export const onDisconnect = spacetimedb.clientDisconnected(ctx => {
+  console.info(`Operator disconnected: ${ctx.sender.toHexString()}`);
+});
+
+// --- TRANSACTIONAL REDUCERS ---
+
+// Reducer 1: Acknowledge an operational alert
 export const ack_alert = spacetimedb.reducer(
   { alert_id: t.string(), user_name: t.string() },
   (ctx, { alert_id, user_name }) => {
-    const alert = ctx.db.alert.id.find(alert_id);
-    if (alert) {
+    const alertRow = ctx.db.alert.id.find(alert_id);
+    if (alertRow) {
       ctx.db.alert.id.update({
-        ...alert,
+        ...alertRow,
         acknowledged: true,
         acknowledged_by: user_name,
       });
@@ -174,16 +190,16 @@ export const ack_alert = spacetimedb.reducer(
   }
 );
 
+// Reducer 2: Approve Plan (Strict Human-Only Gate with Invariant Checks)
 export const approve_plan = spacetimedb.reducer(
   { plan_id: t.string(), operator_name: t.string() },
   (ctx, { plan_id, operator_name }) => {
-    const plan = ctx.db.plan.id.find(plan_id);
-    if (!plan) return;
-    if (plan.is_approved) return; // Prevent double approval
+    const planRow = ctx.db.plan.id.find(plan_id);
+    if (!planRow || planRow.is_approved) return;
 
     const now = new Date().toISOString();
     ctx.db.plan.id.update({
-      ...plan,
+      ...planRow,
       is_approved: true,
       approved_by: operator_name,
       approved_at: now,
@@ -192,21 +208,33 @@ export const approve_plan = spacetimedb.reducer(
     // Record formal decision
     ctx.db.decision.insert({
       id: `dec_${Date.now()}`,
-      plan_id: plan_id,
+      plan_id,
       approved_by: operator_name,
       approved_at: now,
-      status: "APPROVED",
-      notes: "Approved via Tidewatch Console",
+      status: 'APPROVED',
+      notes: 'Approved via Tidewatch Console',
+    });
+
+    // Auto-create handoff audit trail
+    ctx.db.handoff_item.insert({
+      id: `handoff_${Date.now()}`,
+      title: `Plan Approved: ${planRow.name}`,
+      details: `Executed by ${operator_name} at ${now}.`,
+      category: 'OPEN_DECISION',
+      severity: 'WARNING',
+      resolved: false,
+      created_by: operator_name,
+      created_at: now,
     });
   }
 );
 
+// Reducer 3: Claim Action (Duplicate Claim Prevention)
 export const claim_action = spacetimedb.reducer(
-  { action_id: t.string(), claimed_by: t.string() },
-  (ctx, { action_id, claimed_by }) => {
-    // Prevent duplicate claims on same action
+  { action_id: t.string(), action_name: t.string(), claimed_by: t.string() },
+  (ctx, { action_id, action_name, claimed_by }) => {
     for (const existing of ctx.db.action_claim.iter()) {
-      if (existing.action_id === action_id && existing.status !== "COMPLETED") {
+      if (existing.action_id === action_id && existing.status !== 'COMPLETED') {
         console.warn(`Action ${action_id} already claimed by ${existing.claimed_by}`);
         return;
       }
@@ -215,13 +243,16 @@ export const claim_action = spacetimedb.reducer(
     ctx.db.action_claim.insert({
       id: `claim_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       action_id,
+      action_name,
       claimed_by,
       claimed_at: new Date().toISOString(),
-      status: "CLAIMED",
+      status: 'CLAIMED',
+      completed_at: undefined,
     });
   }
 );
 
+// Reducer 4: Complete Action
 export const complete_action = spacetimedb.reducer(
   { claim_id: t.string() },
   (ctx, { claim_id }) => {
@@ -229,22 +260,23 @@ export const complete_action = spacetimedb.reducer(
     if (claim) {
       ctx.db.action_claim.id.update({
         ...claim,
-        status: "COMPLETED",
+        status: 'COMPLETED',
         completed_at: new Date().toISOString(),
       });
     }
   }
 );
 
+// Reducer 5: Add Note
 export const add_note = spacetimedb.reducer(
   { title: t.string(), details: t.string(), category: t.string(), user_name: t.string() },
   (ctx, { title, details, category, user_name }) => {
     ctx.db.handoff_item.insert({
-      id: `handoff_${Date.now()}`,
+      id: `note_${Date.now()}`,
       title,
       details,
       category,
-      severity: "INFO",
+      severity: 'INFO',
       resolved: false,
       created_by: user_name,
       created_at: new Date().toISOString(),
@@ -252,13 +284,15 @@ export const add_note = spacetimedb.reducer(
   }
 );
 
+// Reducer 6: Set Risk Tolerance
 export const set_risk_tolerance = spacetimedb.reducer(
   { tolerance: t.f64() },
   (_ctx, { tolerance }) => {
-    console.info(`Updated system risk tolerance: ${tolerance}`);
+    console.info(`Set system risk tolerance: ${tolerance}`);
   }
 );
 
+// Reducer 7: Open Handoff Item
 export const open_handoff = spacetimedb.reducer(
   { title: t.string(), details: t.string(), created_by: t.string() },
   (ctx, { title, details, created_by }) => {
@@ -266,8 +300,8 @@ export const open_handoff = spacetimedb.reducer(
       id: `handoff_${Date.now()}`,
       title,
       details,
-      category: "SHIFT_HANDOFF",
-      severity: "WARNING",
+      category: 'SHIFT_HANDOFF',
+      severity: 'WARNING',
       resolved: false,
       created_by,
       created_at: new Date().toISOString(),
@@ -275,6 +309,7 @@ export const open_handoff = spacetimedb.reducer(
   }
 );
 
+// Reducer 8: Accept Handoff Item
 export const accept_handoff = spacetimedb.reducer(
   { item_id: t.string() },
   (ctx, { item_id }) => {
@@ -288,10 +323,10 @@ export const accept_handoff = spacetimedb.reducer(
   }
 );
 
+// Reducer 9: Resolve Incident
 export const resolve_incident = spacetimedb.reducer(
   { incident_id: t.string(), resolution_notes: t.string() },
   (_ctx, { incident_id, resolution_notes }) => {
-    console.info(`Resolved incident ${incident_id}: ${resolution_notes}`);
+    console.info(`Incident ${incident_id} resolved: ${resolution_notes}`);
   }
 );
-

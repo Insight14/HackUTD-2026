@@ -140,3 +140,4 @@ def test_hardware_reading_override():
 
     state = sim.step(dt_seconds=1.0)
     assert state.sensor_readings["tank_a"].ultrasonic_level_fraction == 0.77
+

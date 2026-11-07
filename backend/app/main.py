@@ -7,6 +7,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.app.config import settings
 from backend.app.api.simulator import router as simulator_router, simulator, broadcast_state
+from backend.app.api.spacetimedb import router as spacetimedb_router
+
 
 _background_ticker_task = None
 
@@ -46,6 +48,8 @@ app.add_middleware(
 )
 
 app.include_router(simulator_router)
+app.include_router(spacetimedb_router)
+
 
 
 @app.get("/api/health")

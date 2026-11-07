@@ -169,3 +169,4 @@ async def websocket_telemetry(websocket: WebSocket):
         _connected_websockets.discard(websocket)
     except Exception:
         _connected_websockets.discard(websocket)
+
