@@ -51,3 +51,4 @@ async def run_evaluation_benchmark(req: BenchmarkRequest = BenchmarkRequest()):
         return report.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Benchmark execution failed: {str(e)}")
+
