@@ -1,6 +1,7 @@
 """FastAPI Backend Entrypoint for Tidewatch."""
 import json
 import asyncio
+from pathlib import Path
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -13,6 +14,7 @@ from backend.app.api.tiger_data import router as telemetry_router
 from backend.app.api.agent import router as agent_router
 from backend.app.api.hardware_vision import router as hardware_vision_router
 from backend.app.api.scenarios import router as scenarios_router
+from fastapi.staticfiles import StaticFiles
 from backend.app.integrations.tiger_data import tiger_data_adapter, TelemetryPoint
 
 
@@ -114,4 +116,10 @@ async def get_topology():
         return {"error": "Topology configuration file not found"}
     with open(settings.topology_config_path, "r") as f:
         return json.load(f)
+
+# Mount production frontend build if available
+frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+if frontend_dist.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+
 
