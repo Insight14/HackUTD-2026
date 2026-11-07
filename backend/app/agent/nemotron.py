@@ -120,6 +120,51 @@ class NemotronAgent:
 
         provider_name = "NVIDIA_NIM_LIVE" if self.enabled else "LOCAL_DETERMINISTIC_PROVIDER"
 
+        # If NVIDIA Nemotron live integration is enabled, query NIM API
+        if self.enabled:
+            try:
+                import httpx
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                }
+                payload = {
+                    "model": self.model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are Tidewatch AI, an expert decision support assistant for produced-water operators. "
+                                "Provide a concise operational briefing using ONLY verified numbers from the tools. "
+                                "Cite tool chips using markdown code blocks: `[chip:get_state]`, `[chip:diagnose]`, `[chip:forecast]`, `[chip:evaluate_plan]`. "
+                                "Safety invariant: remind the operator that human approval is required for all actions."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Generate operational briefing from tool observations:\n"
+                                f"- Tank A Level: {curr_lvl} bbl ({fill_pct}%) [tool: get_state]\n"
+                                f"- Top Diagnosis: {h_name} with {h_prob}% confidence [tool: diagnose]\n"
+                                f"- Next Best Check: {check_name} [tool: diagnose]\n"
+                                f"- Time to High-High: {time_to_hh} minutes (P10 {p10} - P90 {p90}) [tool: forecast]\n"
+                                f"- Best Plan: {plan_name} at ${plan_cost:,.2f} (P(breach) {plan_breach}%) [tool: evaluate_plan]\n"
+                                f"- Decision Deadline: {decide_by} minutes, Cost of Waiting: ${cost_waiting}/min [tool: evaluate_plan]\n"
+                            ),
+                        },
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 600,
+                }
+                resp = httpx.post(f"{self.base_url}/chat/completions", headers=headers, json=payload, timeout=8.0)
+                if resp.status_code == 200:
+                    ai_content = resp.json()["choices"][0]["message"]["content"]
+                    if ai_content and len(ai_content.strip()) > 30:
+                        explanation = ai_content
+            except Exception:
+                # Graceful fallback to deterministic grounded explanation
+                pass
+
         return AgentResponse(
             provider=provider_name,
             plain_language_explanation=explanation,
