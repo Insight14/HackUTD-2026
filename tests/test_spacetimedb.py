@@ -104,3 +104,4 @@ async def test_shift_handoff_lifecycle():
     # Morning operator accepts handoff
     accepted = await stdb.accept_handoff(item_id=note.id, accepted_by="Morning Operator")
     assert accepted.resolved is True
+

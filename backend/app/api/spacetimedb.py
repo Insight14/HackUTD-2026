@@ -154,3 +154,4 @@ async def spacetimedb_realtime_ws(websocket: WebSocket):
         _connected_clients.discard(websocket)
     except Exception:
         _connected_clients.discard(websocket)
+
