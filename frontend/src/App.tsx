@@ -549,6 +549,15 @@ export default function App() {
             <span className="text-slate-600">|</span>
             <span className="text-amber-400 font-semibold">SPACETIMEDB SYNCED</span>
           </div>
+
+          <a
+            href="http://localhost:5174"
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs font-mono px-3 py-1.5 rounded bg-cyan-950/60 border border-cyan-700/80 hover:bg-cyan-900 text-cyan-300 font-bold transition-colors flex items-center gap-1.5"
+          >
+            3D Digital Twin (Phase 8) →
+          </a>
         </div>
       </header>
 

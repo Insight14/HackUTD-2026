@@ -307,6 +307,25 @@ export default function App({ source }: { source?: TwinSource }) {
           </span>
         </div>
         <div className="header-right">
+          <a
+            href="http://localhost:5173"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "5px 12px",
+              borderRadius: "6px",
+              background: "#0e2439",
+              border: "1px solid #1a5380",
+              color: "#54f8dd",
+              fontSize: "11px",
+              fontWeight: 700,
+              textDecoration: "none",
+              marginRight: "8px",
+            }}
+          >
+            ← Operator Console (S1–S5 Scenarios)
+          </a>
           <span className="event-pill">
             HACKUTD <b>ZERO DAY</b>
           </span>
