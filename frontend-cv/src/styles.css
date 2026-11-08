@@ -1795,6 +1795,55 @@ footer > span:first-child {
 .scene-topline {
   z-index: 3;
 }
+.scene-flow-key {
+  position: absolute;
+  z-index: 3;
+  top: 42px;
+  left: 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: #a5bec7;
+  font:
+    8px "IBM Plex Mono",
+    monospace;
+  letter-spacing: 0.2px;
+  pointer-events: none;
+  background: #07121bc9;
+  border: 1px solid #2a48514d;
+  border-radius: 3px;
+  padding: 5px 7px;
+}
+.scene-flow-key span {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.scene-flow-key i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+}
+.scene-flow-key i.flow-disrupted {
+  background: var(--pink);
+  box-shadow: 0 0 6px var(--pink);
+}
+.scene-flow-key small {
+  font-size: 7px;
+  color: #78919a;
+  letter-spacing: 1px;
+}
+@media (max-width: 620px) {
+  .scene-flow-key {
+    gap: 6px;
+    font-size: 7px;
+  }
+  .scene-flow-key small {
+    display: none;
+  }
+}
 .hand-cursor {
   position: absolute;
   z-index: 5;

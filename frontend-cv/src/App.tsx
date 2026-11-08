@@ -481,6 +481,20 @@ export default function App({ source }: { source?: TwinSource }) {
                   </div>
                   <span>AVON / SECTOR 07</span>
                 </div>
+                {tab === "twin" && !dataUnavailable && (
+                  <div
+                    className="scene-flow-key"
+                    aria-label="Illustrative flow legend"
+                  >
+                    <span>
+                      <i className="flow-live" /> Cyan pulse · flow path
+                    </span>
+                    <span>
+                      <i className="flow-disrupted" /> Magenta · disruption
+                    </span>
+                    <small>SCHEMATIC</small>
+                  </div>
+                )}
                 {dataUnavailable ? (
                   <div className="webgl-error">
                     Waiting for backend data…
