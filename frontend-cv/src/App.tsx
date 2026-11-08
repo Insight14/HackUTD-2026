@@ -155,13 +155,13 @@ export default function App({ source }: { source?: TwinSource }) {
     if (e.gesture === "pan") {
       setCommand({ type: "rotate", delta: e.delta ?? 0 });
     }
-    // Full pinch: Zoom in aggressively toward the model
+    // Full pinch: Smooth, controlled zoom in toward the model
     if (e.gesture === "pinch") {
-      setCommand({ type: "zoom", delta: 0.86 });
+      setCommand({ type: "zoom", delta: 0.97 });
     }
-    // Spread / L-shape / V-sign: Zoom out aggressively to wide aerial view
+    // Spread / L-shape / V-sign: Smooth, gentle, controlled zoom out
     if (e.gesture === "pinch_open") {
-      setCommand({ type: "zoom", delta: 1.15 });
+      setCommand({ type: "zoom", delta: 1.03 });
     }
     // Point: laser select
     if (e.gesture === "point") {

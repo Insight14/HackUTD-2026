@@ -16,6 +16,25 @@ function CameraController({
 }) {
   const controls = useRef<OrbitType>(null);
   const { camera, scene } = useThree();
+  const rotVelocity = useRef(0);
+
+  // Physics animation loop: applies rotational momentum and smooth deceleration
+  useFrame(() => {
+    if (!controls.current) return;
+    const c = controls.current;
+
+    if (Math.abs(rotVelocity.current) > 0.0002) {
+      const offset = camera.position.clone().sub(c.target);
+      offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), rotVelocity.current);
+      camera.position.copy(c.target.clone().add(offset));
+      c.update();
+      // Decay factor for realistic rotational inertia / friction
+      rotVelocity.current *= 0.93;
+    } else {
+      rotVelocity.current = 0;
+    }
+  });
+
   useEffect(() => {
     if (!command || !controls.current) return;
     const c = controls.current;
@@ -38,10 +57,12 @@ function CameraController({
       return;
     }
     if (command.type === "reset") {
+      rotVelocity.current = 0;
       camera.position.set(14, 17, 18);
       c.target.set(0, 0, 0);
     }
     if (command.type === "top") {
+      rotVelocity.current = 0;
       camera.position.set(0.01, 23, 0.01);
       c.target.set(0, 0, 0);
     }
@@ -49,6 +70,8 @@ function CameraController({
       const offset = camera.position.clone().sub(c.target);
       offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), command.delta);
       camera.position.copy(c.target.clone().add(offset));
+      // Impart momentum proportional to hand velocity so faster flicks spin further
+      rotVelocity.current = command.delta * 0.85;
     }
     if (command.type === "zoom") {
       const offset = camera.position.clone().sub(c.target);
