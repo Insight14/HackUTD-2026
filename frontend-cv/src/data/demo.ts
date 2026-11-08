@@ -4,9 +4,10 @@ export function demoSnapshot(tick = 0, scenario = "failure"): TwinSnapshot {
   const surge = scenario === "surge";
   const fault = scenario === "sensor";
   const normal = scenario === "normal";
+  const leak = scenario === "leak";
   const level = Math.min(
     96,
-    (normal ? 57 : surge ? 83 : 78.4) + Math.sin(tick / 10) * 0.7,
+    (normal ? 57 : surge ? 83 : leak ? 64 : 78.4) + Math.sin(tick / 10) * 0.7,
   );
   return {
     source: "synthetic",
@@ -61,11 +62,11 @@ export function demoSnapshot(tick = 0, scenario = "failure"): TwinSnapshot {
         id: "P-01",
         name: "Primary transfer pump",
         kind: "pump",
-        status: normal || surge || fault ? "running" : "failed",
+        status: normal || surge || fault ? "running" : leak ? "warning" : "failed",
         position: [-1.5, 0, 2],
-        inflow: normal ? 238 : 84,
-        outflow: normal ? 238 : 84,
-        history: [240, 242, 239, 242, 160, 90, 84],
+        inflow: normal ? 238 : leak ? 240 : 84,
+        outflow: normal ? 238 : leak ? 156 : 84,
+        history: leak ? [240, 240, 210, 180, 165, 156, 156] : [240, 242, 239, 242, 160, 90, 84],
       },
       {
         id: "P-02",
@@ -95,16 +96,20 @@ export function demoSnapshot(tick = 0, scenario = "failure"): TwinSnapshot {
             ? "Level sensor disagreement"
             : surge
               ? "Upstream inflow surge"
-              : "Primary transfer pump offline",
+              : leak
+                ? "Pipeline breach & active fluid leak"
+                : "Primary transfer pump offline",
           description: fault
             ? "Ultrasonic reading differs from camera and flow balance. Verify the sensor on site."
             : surge
               ? "East gathering inflow exceeds normal operating range. Inspect T-104."
-              : "Reduced outflow is raising T-104. Inspect the affected equipment and return to the operator console for response approval.",
+              : leak
+                ? "High-pressure line rupture on discharge manifold. -84 bbl/h fluid loss. Red data stream escaping."
+                : "Reduced outflow is raising T-104. Inspect the affected equipment and return to the operator console for response approval.",
           equipmentId: fault || surge ? "T-104" : "P-01",
         },
     forecast: normal
       ? null
-      : { minutes: 41, p10: 28, p90: 63, costPerMinute: 310 },
+      : { minutes: leak ? 18 : 41, p10: leak ? 12 : 28, p90: leak ? 25 : 63, costPerMinute: leak ? 480 : 310 },
   };
 }

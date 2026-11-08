@@ -566,16 +566,210 @@ function TreatmentSkid({
     </group>
   );
 }
+function FluidDataLeakSpray({
+  position = [1.2, 0.5, 2.0],
+  paused = false,
+}: {
+  position: [number, number, number];
+  paused?: boolean;
+}) {
+  const count = 52;
+  const meshGroup = useRef<THREE.Group>(null);
+  const rippleRef = useRef<THREE.Group>(null);
+  const lightRef = useRef<THREE.PointLight>(null);
+
+  // Initialize particle states: position, velocity, life, maxLife, initial scale
+  const particles = useMemo(() => {
+    return Array.from({ length: count }, (_, i) => {
+      const angle = (i / count) * Math.PI * 2;
+      const speed = 1.3 + ((i * 7) % 9) * 0.16;
+      return {
+        x: position[0],
+        y: position[1],
+        z: position[2],
+        vx: (Math.sin(angle) * 0.5 + 0.15) * speed,
+        vy: (0.9 + ((i * 11) % 9) * 0.14) * speed,
+        vz: (Math.cos(angle) * 0.5 + 0.85) * speed,
+        life: (i / count) * 1.4,
+        maxLife: 1.1 + ((i * 3) % 7) * 0.1,
+        scale: 0.08 + ((i * 5) % 8) * 0.015,
+      };
+    });
+  }, [position, count]);
+
+  useFrame(({ clock }, dt) => {
+    if (paused) return;
+    const clampedDt = Math.min(dt, 0.05);
+
+    if (lightRef.current) {
+      lightRef.current.intensity = 15 + Math.sin(clock.elapsedTime * 18) * 6;
+    }
+
+    if (rippleRef.current) {
+      const s = 1 + 0.15 * Math.sin(clock.elapsedTime * 5);
+      rippleRef.current.scale.set(s, s, 1);
+    }
+
+    if (!meshGroup.current) return;
+    const children = meshGroup.current.children;
+
+    for (let i = 0; i < count; i++) {
+      const p = particles[i];
+      const child = children[i] as THREE.Mesh;
+      if (!child) continue;
+
+      p.life += clampedDt;
+      if (p.life >= p.maxLife) {
+        p.life = 0;
+        p.x = position[0] + (Math.random() - 0.5) * 0.08;
+        p.y = position[1] + (Math.random() - 0.5) * 0.08;
+        p.z = position[2] + (Math.random() - 0.5) * 0.08;
+        const speed = 1.5 + Math.random() * 1.3;
+        const spread = (Math.random() - 0.5) * 0.8;
+        p.vx = spread * 1.1;
+        p.vy = (1.1 + Math.random() * 1.4) * 1.2;
+        p.vz = 1.2 + Math.random() * 1.6;
+      }
+
+      p.x += p.vx * clampedDt;
+      p.vy -= 4.5 * clampedDt;
+      p.y += p.vy * clampedDt;
+      p.z += p.vz * clampedDt;
+
+      if (p.y < 0.035) {
+        p.y = 0.035;
+        p.vx *= 0.85;
+        p.vz *= 0.85;
+      }
+
+      child.position.set(p.x, p.y, p.z);
+      const lifeRatio = 1 - p.life / p.maxLife;
+      const curScale = THREE.MathUtils.clamp(
+        p.scale * (0.35 + 0.85 * lifeRatio),
+        0.02,
+        0.22,
+      );
+      child.scale.setScalar(curScale);
+    }
+  });
+
+  return (
+    <group>
+      {/* Pipe rupture fracture collar */}
+      <mesh position={position} rotation={[0, 0, Math.PI / 2]}>
+        <cylinderGeometry args={[0.15, 0.15, 0.38, 16]} />
+        <meshStandardMaterial
+          color="#ff1744"
+          emissive="#ff0033"
+          emissiveIntensity={0.9}
+          roughness={0.2}
+          wireframe
+        />
+      </mesh>
+
+      {/* Flashing alert red point light illuminating the pipe and ground */}
+      <pointLight
+        ref={lightRef}
+        position={[position[0], position[1] + 0.4, position[2] + 0.3]}
+        color="#ff1744"
+        intensity={16}
+        distance={8}
+      />
+
+      {/* Escaping Red Fluid / Digital Data Particles */}
+      <group ref={meshGroup}>
+        {particles.map((p, i) => (
+          <mesh key={i} position={[p.x, p.y, p.z]}>
+            {i % 2 === 0 ? (
+              <boxGeometry args={[0.11, 0.11, 0.11]} />
+            ) : (
+              <sphereGeometry args={[0.085, 8, 8]} />
+            )}
+            <meshBasicMaterial
+              color={
+                i % 4 === 0
+                  ? "#ffffff"
+                  : i % 2 === 0
+                    ? "#ff5252"
+                    : "#ff1744"
+              }
+            />
+          </mesh>
+        ))}
+      </group>
+
+      {/* Ground puddle and shockwave ripples */}
+      <group
+        ref={rippleRef}
+        position={[position[0], 0.015, position[2] + 0.95]}
+        rotation={[-Math.PI / 2, 0, 0]}
+      >
+        <mesh>
+          <circleGeometry args={[0.82, 32]} />
+          <meshBasicMaterial
+            color="#ff1744"
+            transparent
+            opacity={0.42}
+            side={THREE.DoubleSide}
+            depthWrite={false}
+          />
+        </mesh>
+        <mesh>
+          <ringGeometry args={[0.85, 0.92, 32]} />
+          <meshBasicMaterial
+            color="#ff5252"
+            transparent
+            opacity={0.7}
+            side={THREE.DoubleSide}
+            depthWrite={false}
+          />
+        </mesh>
+        <mesh>
+          <ringGeometry args={[1.15, 1.22, 32]} />
+          <meshBasicMaterial
+            color="#ff1744"
+            transparent
+            opacity={0.35}
+            side={THREE.DoubleSide}
+            depthWrite={false}
+          />
+        </mesh>
+      </group>
+
+      {/* Floating 3D Alert Beacon directly over the rupture */}
+      <group position={[position[0], position[1] + 1.25, position[2]]}>
+        <mesh>
+          <octahedronGeometry args={[0.22]} />
+          <meshBasicMaterial color="#ff1744" />
+        </mesh>
+        <mesh rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[0.3, 0.35, 24]} />
+          <meshBasicMaterial
+            color="#ff5252"
+            transparent
+            opacity={0.8}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
 function Pipe({
   points,
   paused,
   blocked = false,
   inactive = false,
+  leaking = false,
+  leakPoint = [1.2, 0.5, 2.0],
 }: {
   points: [number, number, number][];
   paused: boolean;
   blocked?: boolean;
   inactive?: boolean;
+  leaking?: boolean;
+  leakPoint?: [number, number, number];
 }) {
   const curve = useMemo(
     () =>
@@ -593,15 +787,20 @@ function Pipe({
   const pulseUniforms = useMemo(
     () => ({
       uTravel: { value: 0 },
-      uColor: { value: new THREE.Color("#b9ffff") },
+      uColor: { value: new THREE.Color(leaking ? "#ff1744" : "#b9ffff") },
     }),
-    [],
+    [leaking],
   );
   useFrame(({ clock }, dt) => {
     if (!paused && !blocked && !inactive) {
-      travel.current = (travel.current + dt * 0.48) % 1;
+      travel.current = (travel.current + dt * (leaking ? 0.72 : 0.48)) % 1;
       if (pulseMaterial.current) {
-        pulseMaterial.current.uniforms.uTravel.value += dt * 1.15;
+        pulseMaterial.current.uniforms.uTravel.value += dt * (leaking ? 1.75 : 1.15);
+        if (leaking) {
+          pulseMaterial.current.uniforms.uColor.value.set("#ff1744");
+        } else {
+          pulseMaterial.current.uniforms.uColor.value.set("#b9ffff");
+        }
         pulseMaterial.current.uniformsNeedUpdate = true;
       }
     }
@@ -623,9 +822,9 @@ function Pipe({
       <mesh>
         <tubeGeometry args={[curve, 60, 0.095, 8, false]} />
         <meshStandardMaterial
-          color={inactive ? "#263746" : blocked ? "#733b65" : "#155d6b"}
-          emissive={inactive ? "#263746" : blocked ? pink : cyan}
-          emissiveIntensity={inactive ? 0.04 : 0.25}
+          color={leaking ? "#ff1744" : inactive ? "#263746" : blocked ? "#733b65" : "#155d6b"}
+          emissive={leaking ? "#ff0033" : inactive ? "#263746" : blocked ? pink : cyan}
+          emissiveIntensity={leaking ? 0.75 : inactive ? 0.04 : 0.25}
         />
       </mesh>
       {!blocked && !inactive && (
@@ -654,7 +853,7 @@ function Pipe({
       )}
       <Line
         points={points}
-        color={inactive ? "#546374" : blocked ? pink : cyan}
+        color={leaking ? "#ff1744" : inactive ? "#546374" : blocked ? pink : cyan}
         lineWidth={1.5}
         transparent
         opacity={inactive ? 0.22 : 0.5}
@@ -669,15 +868,15 @@ function Pipe({
                 ) : (
                   <sphereGeometry args={[0.14, 12, 12]} />
                 )}
-                <meshBasicMaterial color={blocked ? pink : "#dbffff"} />
+                <meshBasicMaterial color={leaking ? "#ff1744" : blocked ? pink : "#dbffff"} />
               </mesh>
               {!blocked && (
                 <mesh>
                   <sphereGeometry args={[0.25, 12, 12]} />
                   <meshBasicMaterial
-                    color={cyan}
+                    color={leaking ? "#ff5252" : cyan}
                     transparent
-                    opacity={0.24}
+                    opacity={0.3}
                     depthWrite={false}
                   />
                 </mesh>
@@ -685,6 +884,9 @@ function Pipe({
             </group>
           ))}
         </group>
+      )}
+      {leaking && (
+        <FluidDataLeakSpray position={leakPoint} paused={paused} />
       )}
     </>
   );
@@ -787,6 +989,7 @@ export function DigitalTwin({
   paused,
   command,
   onZoomChange,
+  isLeaking: propIsLeaking,
 }: {
   snapshot: TwinSnapshot;
   selected: string;
@@ -794,9 +997,16 @@ export function DigitalTwin({
   paused: boolean;
   command: ViewCommand | null;
   onZoomChange?: (level: number) => void;
+  isLeaking?: boolean;
 }) {
   const failed =
     snapshot.equipment.find((e) => e.id === "P-01")?.status === "failed";
+  const incidentTitle = snapshot.incident?.title?.toLowerCase() ?? "";
+  const isLeaking =
+    Boolean(propIsLeaking) ||
+    incidentTitle.includes("leak") ||
+    incidentTitle.includes("breach") ||
+    incidentTitle.includes("rupture");
   const incidentAsset = snapshot.equipment.find(
     (e) => e.id === snapshot.incident?.equipmentId,
   );
@@ -923,7 +1133,9 @@ export function DigitalTwin({
               [6.2, 0.5, 0],
             ]}
             paused={paused}
-            blocked={failed}
+            blocked={failed && !isLeaking}
+            leaking={isLeaking}
+            leakPoint={[1.2, 0.5, 2.0]}
           />
           <Pipe
             points={[

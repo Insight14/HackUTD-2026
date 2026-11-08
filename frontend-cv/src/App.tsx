@@ -98,6 +98,7 @@ export default function App({ source }: { source?: TwinSource }) {
         : demoSnapshot(),
     ),
     [scenario, setScenario] = useState("failure"),
+    [isLeaking, setIsLeaking] = useState(false),
     [selected, setSelected] = useState("T-104"),
     [paused, setPaused] = useState(false),
     [enabled, setEnabled] = useState(false),
@@ -494,9 +495,27 @@ export default function App({ source }: { source?: TwinSource }) {
               </div>
               <div className="scene" ref={stage}>
                 <div className="scene-topline">
-                  <div>
-                    <i className={paused ? "dot amber" : "dot"} />
-                    {paused ? "ANIMATION PAUSED" : "FLOW VISUALIZATION ACTIVE"}
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <div>
+                      <i className={paused ? "dot amber" : (isLeaking || scenario === "leak") ? "dot alert-red" : "dot"} />
+                      {paused ? "ANIMATION PAUSED" : (isLeaking || scenario === "leak") ? "PIPELINE LEAK ACTIVE" : "FLOW VISUALIZATION ACTIVE"}
+                    </div>
+                    <button
+                      type="button"
+                      className={`leak-btn ${isLeaking || scenario === "leak" ? "active" : ""}`}
+                      onClick={() => {
+                        if (scenario === "leak") {
+                          setScenario("normal");
+                          setIsLeaking(false);
+                        } else {
+                          setIsLeaking((x) => !x);
+                        }
+                      }}
+                      title="Simulate high-pressure pipeline rupture and active fluid loss"
+                    >
+                      <Droplets size={13} />
+                      {isLeaking || scenario === "leak" ? "🚨 Active Leak (-84 bbl/h)" : "⚠ Simulate Leak"}
+                    </button>
                   </div>
                   <span>AVON / SECTOR 07</span>
                 </div>
@@ -511,6 +530,11 @@ export default function App({ source }: { source?: TwinSource }) {
                     <span>
                       <i className="flow-disrupted" /> Magenta · disruption
                     </span>
+                    {(isLeaking || scenario === "leak") && (
+                      <span style={{ color: "#ff6b81", fontWeight: 700, display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                        <i className="flow-leak" /> Red stream · Fluid rupture leak
+                      </span>
+                    )}
                     <small>SCHEMATIC</small>
                   </div>
                 )}
@@ -535,6 +559,7 @@ export default function App({ source }: { source?: TwinSource }) {
                       paused={paused}
                       command={command}
                       onZoomChange={onZoomChange}
+                      isLeaking={isLeaking || scenario === "leak"}
                     />
                   </Suspense>
                 ) : (
@@ -1174,8 +1199,13 @@ export default function App({ source }: { source?: TwinSource }) {
                   <select
                     aria-label="Demo scenario"
                     value={scenario}
-                    onChange={(ev) => setScenario(ev.target.value)}
+                    onChange={(ev) => {
+                      setScenario(ev.target.value);
+                      if (ev.target.value === "leak") setIsLeaking(true);
+                      else if (isLeaking) setIsLeaking(false);
+                    }}
                   >
+                    <option value="leak">S2 / Pipeline breach & active leak</option>
                     <option value="failure">S1 / Pump failure at night</option>
                     <option value="sensor">
                       S3 / Level sensor disagreement

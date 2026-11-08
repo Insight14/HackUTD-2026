@@ -189,6 +189,10 @@ p {
 .dot.amber {
   background: var(--amber);
 }
+.dot.alert-red {
+  background: #ff1744;
+  box-shadow: 0 0 10px #ff1744;
+}
 .avatar {
   font-size: 10px;
   display: grid;
@@ -1829,6 +1833,48 @@ footer > span:first-child {
 .scene-flow-key i.flow-disrupted {
   background: var(--pink);
   box-shadow: 0 0 6px var(--pink);
+}
+.scene-flow-key i.flow-leak {
+  background: #ff1744;
+  box-shadow: 0 0 8px #ff1744, 0 0 14px #ff1744;
+  animation: pulse-leak 0.9s infinite alternate;
+}
+@keyframes pulse-leak {
+  from { opacity: 0.6; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1.35); }
+}
+.leak-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid rgba(255, 23, 68, 0.5);
+  background: rgba(255, 23, 68, 0.12);
+  color: #ff6b81;
+}
+.leak-btn:hover {
+  background: rgba(255, 23, 68, 0.28);
+  color: #ffffff;
+  border-color: #ff1744;
+  box-shadow: 0 0 12px rgba(255, 23, 68, 0.45);
+}
+.leak-btn.active {
+  background: #ff1744;
+  color: #ffffff;
+  border-color: #ff5252;
+  box-shadow: 0 0 18px rgba(255, 23, 68, 0.85);
+  animation: pulse-leak-glow 1.4s infinite;
+}
+@keyframes pulse-leak-glow {
+  0% { box-shadow: 0 0 8px rgba(255, 23, 68, 0.6); }
+  50% { box-shadow: 0 0 22px rgba(255, 23, 68, 1); }
+  100% { box-shadow: 0 0 8px rgba(255, 23, 68, 0.6); }
 }
 .scene-flow-key small {
   font-size: 7px;
