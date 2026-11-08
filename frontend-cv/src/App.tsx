@@ -41,7 +41,11 @@ const DigitalTwin = lazy(() =>
 import { demoSnapshot } from "./data/demo";
 import { validateSnapshot } from "./data/validate";
 import type { TwinSnapshot, TwinSource, ViewCommand } from "./data/types";
-import { useHandTracking, type HandEvent } from "./gestures/useHandTracking";
+import {
+  useHandTracking,
+  type HandEvent,
+  type InteractionMode,
+} from "./gestures/useHandTracking";
 function Sparkline({
   values,
   color = "#56e4e9",
@@ -104,6 +108,12 @@ export default function App({ source }: { source?: TwinSource }) {
     [lastUpdate, setLastUpdate] = useState(Date.now()),
     [age, setAge] = useState(0);
   const [inspectorTab, setInspectorTab] = useState("telemetry");
+  const [interactionMode, setInteractionMode] =
+      useState<InteractionMode>("navigate"),
+    [zoomLevel, setZoomLevel] = useState(0.32),
+    [manualClutch, setManualClutch] = useState(false),
+    [keyboardClutch, setKeyboardClutch] = useState(false);
+  const onZoomChange = useCallback((level: number) => setZoomLevel(level), []);
   const stage = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (source) {
@@ -150,14 +160,84 @@ export default function App({ source }: { source?: TwinSource }) {
     setSelected(id);
     setInspectorTab("telemetry");
   }, []);
-  const onGesture = useCallback((e: HandEvent) => {
-    if (e.gesture === "palm") setPaused((p) => !p);
-    if (e.gesture === "pinch") setCommand({ type: "zoom", delta: 0.88 });
-    if (e.gesture === "swipe")
-      setCommand({ type: "rotate", delta: (e.delta ?? 1) * 0.4 });
-    if (e.gesture === "point") setCommand({ type: "select", x: e.x, y: e.y });
-  }, []);
-  const tracking = useHandTracking(enabled, onGesture);
+  const onGesture = useCallback(
+    (e: HandEvent) => {
+      if (e.gesture === "freeze") {
+        setCommand({ type: "zoom-stop" });
+        return;
+      }
+      if (help || tab !== "twin") return;
+      if (e.gesture === "mode" && e.mode) {
+        setInteractionMode(e.mode);
+        return;
+      }
+      if (
+        e.gesture === "zoom" &&
+        interactionMode === "zoom" &&
+        e.level !== undefined
+      ) {
+        setCommand({ type: "zoom-level", level: e.level });
+        return;
+      }
+      if (e.gesture === "rotate") {
+        setCommand({ type: "rotate", delta: e.delta ?? 0, pitch: e.pitch });
+        return;
+      }
+      if (interactionMode !== "navigate") return;
+      if (e.gesture === "palm") setPaused((p) => !p);
+      if (e.gesture === "swipe")
+        setCommand({ type: "rotate", delta: (e.delta ?? 1) * 0.4 });
+      if (e.gesture === "point") setCommand({ type: "select", x: e.x, y: e.y });
+    },
+    [help, tab, interactionMode],
+  );
+  const tracking = useHandTracking(
+    enabled,
+    onGesture,
+    !help && tab === "twin",
+    interactionMode,
+    zoomLevel,
+    manualClutch || keyboardClutch,
+  );
+  useEffect(() => {
+    const down = (event: KeyboardEvent) => {
+      if (
+        enabled &&
+        event.key === "Shift" &&
+        !(event.target as HTMLElement).matches(
+          "input,textarea,select,[contenteditable=true]",
+        )
+      ) {
+        setKeyboardClutch(true);
+        setCommand({ type: "zoom-stop" });
+      }
+    };
+    const up = (event: KeyboardEvent) => {
+      if (event.key === "Shift") setKeyboardClutch(false);
+    };
+    const blur = () => setKeyboardClutch(false);
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", blur);
+    if (!enabled) setKeyboardClutch(false);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", blur);
+    };
+  }, [enabled]);
+  const requestZoom = (level: number) => {
+    tracking.rearm();
+    setCommand({ type: "zoom-level", level: Math.max(0, Math.min(1, level)) });
+  };
+  const focusSelected = useCallback(() => {
+    const asset = snapshot.equipment.find((item) => item.id === selected);
+    if (asset) {
+      tracking.rearm();
+      setTab("twin");
+      setCommand({ type: "focus", position: asset.position });
+    }
+  }, [snapshot.equipment, selected]);
   useEffect(() => {
     function key(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -165,18 +245,31 @@ export default function App({ source }: { source?: TwinSource }) {
         return;
       }
       if (
-        (e.target as HTMLElement).matches("input,select,textarea,button") ||
+        (e.target as HTMLElement).matches(
+          "input,select,textarea,[contenteditable=true]",
+        ) ||
         help
       )
         return;
       const key = e.key.toLowerCase();
       if (key === " ") {
+        if ((e.target as HTMLElement).closest("button,a")) return;
         e.preventDefault();
         setPaused((p) => !p);
       }
-      if (key === "r") setCommand({ type: "reset" });
-      if (key === "+" || key === "=") setCommand({ type: "zoom", delta: 0.85 });
-      if (key === "-") setCommand({ type: "zoom", delta: 1.15 });
+      if (key === "r") {
+        tracking.rearm();
+        setCommand({ type: "reset" });
+      }
+      if (key === "f") focusSelected();
+      if (key === "+" || key === "=") {
+        tracking.rearm();
+        setCommand({ type: "zoom", delta: 0.85 });
+      }
+      if (key === "-") {
+        tracking.rearm();
+        setCommand({ type: "zoom", delta: 1.15 });
+      }
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
         setCommand({
@@ -187,7 +280,7 @@ export default function App({ source }: { source?: TwinSource }) {
     }
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [help]);
+  }, [help, focusSelected]);
   const e =
     snapshot.equipment.find((x) => x.id === selected) ?? snapshot.equipment[0];
   const warning = snapshot.equipment.filter(
@@ -408,6 +501,7 @@ export default function App({ source }: { source?: TwinSource }) {
                       onSelect={select}
                       paused={paused}
                       command={command}
+                      onZoomChange={onZoomChange}
                     />
                   </Suspense>
                 ) : (
@@ -442,43 +536,77 @@ export default function App({ source }: { source?: TwinSource }) {
                     ))}
                   </div>
                 )}
-                {enabled && tracking.pointer && (
-                  <div
-                    className="hand-cursor"
-                    style={{
-                      left: `${tracking.pointer.x * 100}%`,
-                      top: `${tracking.pointer.y * 100}%`,
-                    }}
-                  >
-                    <Crosshair size={28} />
-                    <span>
-                      {tracking.gesture === "none"
-                        ? "TRACKING"
-                        : tracking.gesture.toUpperCase()}
-                    </span>
-                  </div>
-                )}
+                {enabled &&
+                  interactionMode === "navigate" &&
+                  !help &&
+                  tab === "twin" &&
+                  tracking.pointer && (
+                    <div
+                      className="hand-cursor"
+                      style={{
+                        left: `${tracking.pointer.x * 100}%`,
+                        top: `${tracking.pointer.y * 100}%`,
+                      }}
+                    >
+                      <svg
+                        className="dwell-ring"
+                        viewBox="0 0 44 44"
+                        aria-hidden="true"
+                      >
+                        <circle cx="22" cy="22" r="19" />
+                        <circle
+                          cx="22"
+                          cy="22"
+                          r="19"
+                          pathLength="1"
+                          style={{
+                            strokeDasharray: `${tracking.feedback.progress} 1`,
+                          }}
+                        />
+                      </svg>
+                      <Crosshair size={24} />
+                      <span>
+                        {tracking.gesture === "none"
+                          ? "TRACKING"
+                          : tracking.gesture.toUpperCase()}
+                      </span>
+                    </div>
+                  )}
                 <div className="coordinate-label">
                   X 32.90 <span>Y −96.75</span>
                   <br />
                   <small>FIELD REFERENCE · ILLUSTRATIVE</small>
                 </div>
+                {enabled && tab === "twin" && (
+                  <div className="gesture-scene-feedback" role="status">
+                    <Hand size={13} />
+                    <span>{tracking.feedback.hint}</span>
+                    {tracking.runtime && <small>{tracking.runtime}</small>}
+                  </div>
+                )}
                 <div className="scene-controls">
                   <button
                     title="Zoom in (+)"
                     aria-label="Zoom in"
-                    onClick={() => setCommand({ type: "zoom", delta: 0.85 })}
+                    onClick={() => requestZoom(zoomLevel + 0.1)}
                   >
                     <Plus size={17} />
                   </button>
                   <button
                     title="Zoom out (-)"
                     aria-label="Zoom out"
-                    onClick={() => setCommand({ type: "zoom", delta: 1.15 })}
+                    onClick={() => requestZoom(zoomLevel - 0.1)}
                   >
                     <Minus size={17} />
                   </button>
                   <span />
+                  <button
+                    title="Focus selected asset (F)"
+                    aria-label="Focus selected asset"
+                    onClick={focusSelected}
+                  >
+                    <Crosshair size={17} />
+                  </button>
                   <button
                     title="Top view"
                     aria-label="Top view"
@@ -538,6 +666,40 @@ export default function App({ source }: { source?: TwinSource }) {
                   {paused ? <Play size={15} /> : <Pause size={15} />}
                 </button>
               </div>
+              {tab === "twin" && (
+                <div className="zoom-toolbar">
+                  <button
+                    aria-label="Zoom out one step"
+                    onClick={() => requestZoom(zoomLevel - 0.1)}
+                  >
+                    <Minus size={14} />
+                    Zoom out
+                  </button>
+                  <label className="zoom-slider-label">
+                    <span>
+                      ZOOM <b>{Math.round(zoomLevel * 100)}%</b>
+                    </span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={Math.round(zoomLevel * 100)}
+                      aria-label="Camera zoom"
+                      onChange={(event) =>
+                        requestZoom(Number(event.target.value) / 100)
+                      }
+                    />
+                  </label>
+                  <button
+                    aria-label="Zoom in one step"
+                    onClick={() => requestZoom(zoomLevel + 0.1)}
+                  >
+                    Zoom in
+                    <Plus size={14} />
+                  </button>
+                </div>
+              )}
               <div className="incident-strip">
                 <TriangleAlert size={17} />
                 <div>
@@ -628,19 +790,23 @@ export default function App({ source }: { source?: TwinSource }) {
                               : "Latest application measurement"}
                           </small>
                         </div>
-                        <div className="level-meter">
-                          <span style={{ width: `${e.level ?? 0}%` }} />
-                          {snapshot.source === "synthetic" && <i />}
-                        </div>
-                        <div className="scale">
-                          <span>0%</span>
-                          <span>
-                            {snapshot.source === "synthetic"
-                              ? "HIGH-HIGH 95%*"
-                              : "FILL FRACTION"}
-                          </span>
-                          <span>100%</span>
-                        </div>
+                        {e.kind === "tank" && (
+                          <>
+                            <div className="level-meter">
+                              <span style={{ width: `${e.level ?? 0}%` }} />
+                              {snapshot.source === "synthetic" && <i />}
+                            </div>
+                            <div className="scale">
+                              <span>0%</span>
+                              <span>
+                                {snapshot.source === "synthetic"
+                                  ? "HIGH-HIGH 95%*"
+                                  : "FILL FRACTION"}
+                              </span>
+                              <span>100%</span>
+                            </div>
+                          </>
+                        )}
                       </div>
                       <div className="flow-pair">
                         <div>
@@ -746,8 +912,36 @@ export default function App({ source }: { source?: TwinSource }) {
                   <Hand size={15} /> HANDS-FREE NAVIGATION{" "}
                   <span className="beta">MEDIAPIPE</span>
                 </div>
-                <h3>Your hands. The controls.</h3>
-                <p>Explore the field without touching a thing.</p>
+                <h3>
+                  {interactionMode === "zoom"
+                    ? "Spread thumb + index to zoom."
+                    : "Open palm to rotate. Pinch for zoom."}
+                </h3>
+                <p>
+                  Hold pinch 1 second: zoom. Open all fingers: rotate. In zoom,
+                  keep your other fingers curled. Pull your palm down for a top
+                  view; lift it for a side view. Other hand or Shift: freeze.
+                </p>
+                <div
+                  className="hand-mode-switch"
+                  role="group"
+                  aria-label="Hand control mode"
+                >
+                  <button
+                    aria-pressed={interactionMode === "zoom"}
+                    onClick={() => setInteractionMode("zoom")}
+                  >
+                    <Expand size={13} />
+                    Zoom
+                  </button>
+                  <button
+                    aria-pressed={interactionMode === "navigate"}
+                    onClick={() => setInteractionMode("navigate")}
+                  >
+                    <MousePointer2 size={13} />
+                    Rotate / select
+                  </button>
+                </div>
                 <div className="tracking-status">
                   <i
                     className={
@@ -757,29 +951,158 @@ export default function App({ source }: { source?: TwinSource }) {
                   {tracking.status}
                   {tracking.gesture !== "none" && <b>{tracking.gesture}</b>}
                 </div>
+                {enabled && (
+                  <div className="tracking-details">
+                    <div
+                      className="hold-progress"
+                      role="progressbar"
+                      aria-label={
+                        interactionMode === "zoom"
+                          ? "Current zoom"
+                          : "Gesture hold progress"
+                      }
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.round(
+                        tracking.feedback.progress * 100,
+                      )}
+                    >
+                      <span
+                        style={{
+                          width: `${tracking.feedback.progress * 100}%`,
+                        }}
+                      />
+                    </div>
+                    <p>
+                      {help || tab !== "twin"
+                        ? "Return to the 3D view to navigate"
+                        : tracking.feedback.hint}
+                    </p>
+                    {tracking.metrics && (
+                      <small>
+                        {tracking.runtime} · {tracking.metrics.fps} processed
+                        frames/s · {tracking.metrics.inferenceMs} ms inference
+                      </small>
+                    )}
+                    {tracking.lastAction && (
+                      <span className="last-gesture-action">
+                        LAST ACTION / {tracking.lastAction}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
-              <div className="gesture-cards">
-                {[
-                  {
-                    icon: MousePointer2,
-                    name: "Point",
-                    action: "Select asset",
-                  },
-                  { icon: Hand, name: "Open palm", action: "Pause / resume" },
-                  { icon: Expand, name: "Pinch", action: "Zoom closer" },
-                  {
-                    icon: RotateCcw,
-                    name: "Swipe palm",
-                    action: "Rotate view",
-                  },
-                ].map((g) => (
-                  <button key={g.name} onClick={() => setHelp(true)}>
-                    <g.icon size={25} />
-                    <strong>{g.name}</strong>
-                    <small>{g.action}</small>
-                  </button>
-                ))}
-              </div>
+              {enabled && (
+                <div className="zoom-coach">
+                  <div className="zoom-coach-heading">
+                    <span>
+                      {tracking.clutched
+                        ? "CONTROLS FROZEN"
+                        : interactionMode === "zoom"
+                          ? tracking.zoom?.state === "active"
+                            ? "ZOOM ACTIVE"
+                            : "MATCH TO RESUME"
+                          : "NAVIGATION"}
+                    </span>
+                    <button
+                      className={
+                        manualClutch ? "clutch-button engaged" : "clutch-button"
+                      }
+                      onClick={() => {
+                        setCommand({ type: "zoom-stop" });
+                        tracking.rearm();
+                        setManualClutch((value) => !value);
+                      }}
+                    >
+                      {manualClutch ? <Play size={12} /> : <Pause size={12} />}{" "}
+                      {manualClutch ? "Resume controls" : "Freeze controls"}
+                    </button>
+                  </div>
+                  <div
+                    className="spread-meter"
+                    aria-label="Finger spread compared with camera zoom"
+                  >
+                    <span
+                      className="spread-fill"
+                      style={{ width: `${(tracking.zoom?.raw ?? 0) * 100}%` }}
+                    />
+                    <i
+                      className="camera-marker"
+                      style={{ left: `${zoomLevel * 100}%` }}
+                    />
+                    <i
+                      className="hand-marker"
+                      style={{ left: `${(tracking.zoom?.raw ?? 0) * 100}%` }}
+                    />
+                  </div>
+                  <div className="spread-labels">
+                    <span>FINGERS CLOSED / OUT</span>
+                    <span>FULL STRETCH / IN</span>
+                  </div>
+                  <p>
+                    <span className="white-marker-key" />
+                    White marker: current zoom. Cyan marker: your fingers.
+                  </p>
+                  <div className="range-calibration">
+                    <span>{tracking.controlHand}</span>
+                    <button onClick={tracking.switchControlHand}>
+                      Change control hand
+                    </button>
+                  </div>
+                  <div className="calibration-actions">
+                    <button
+                      disabled={tracking.spread === null}
+                      onClick={tracking.calibrateClosed}
+                    >
+                      1. Set fingers closed
+                    </button>
+                    <button
+                      disabled={
+                        !tracking.closedCaptured || tracking.spread === null
+                      }
+                      onClick={tracking.calibrateOpen}
+                    >
+                      2. Set full stretch
+                    </button>
+                  </div>
+                  <small role="status">
+                    {tracking.calibrationMessage ||
+                      "Calibrate once: touch thumb to index, set closed, then spread comfortably and set full stretch."}
+                  </small>
+                </div>
+              )}
+              {!enabled && (
+                <div className="gesture-cards">
+                  {[
+                    {
+                      icon: MousePointer2,
+                      name: "Point",
+                      action: "Select asset",
+                    },
+                    {
+                      icon: Hand,
+                      name: "Other palm",
+                      action: "Freeze controls",
+                    },
+                    {
+                      icon: Expand,
+                      name: "Spread / close",
+                      action: "Zoom in / out",
+                    },
+                    {
+                      icon: RotateCcw,
+                      name: "Swipe palm",
+                      action: "Rotate view",
+                    },
+                  ].map((g) => (
+                    <button key={g.name} onClick={() => setHelp(true)}>
+                      <g.icon size={25} />
+                      <strong>{g.name}</strong>
+                      <small>{g.action}</small>
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className={`camera-preview ${enabled ? "on" : ""}`}>
                 <video ref={tracking.video} muted playsInline />
                 <canvas ref={tracking.overlay} width={640} height={480} />
@@ -792,9 +1115,12 @@ export default function App({ source }: { source?: TwinSource }) {
                 <span>{enabled ? "LOCAL PROCESSING" : "OPT-IN CAMERA"}</span>
               </div>
               {tracking.error && (
-                <p className="camera-error" role="alert">
-                  {tracking.error}
-                </p>
+                <div className="camera-error" role="alert">
+                  <span>{tracking.error}</span>
+                  <button onClick={tracking.retry}>
+                    Retry camera <RotateCcw size={12} />
+                  </button>
+                </div>
               )}
             </section>
             <section className="demo-panel panel">
@@ -870,8 +1196,9 @@ export default function App({ source }: { source?: TwinSource }) {
             <h2>Take a closer look.</h2>
             <p>
               Drag to orbit. Scroll to zoom. Click an asset or select it below.
-              Arrow keys rotate, + / − zoom, R resets, and Space pauses the flow
-              animation. Telemetry keeps updating while animations are paused.
+              Arrow keys rotate, + / − zoom, R resets, F focuses the selected
+              asset, and Space pauses the flow animation. Telemetry keeps
+              updating while animations are paused.
             </p>
             <div className="help-equipment">
               {snapshot.equipment.map((item) => (
@@ -889,10 +1216,25 @@ export default function App({ source }: { source?: TwinSource }) {
             </div>
             <h3>Gesture navigation</h3>
             <p>
-              Enable the camera, keep one hand visible, and hold a gesture for
-              420 ms. Point at an asset, pinch to zoom one step, hold an open
-              palm to pause, or move an open palm sideways to rotate. Release
-              the gesture before repeating. Use good, even lighting.
+              Show your control hand first. In Zoom mode, thumb–index separation
+              controls the whole zoom range: spread to zoom in and close to zoom
+              out. Set closed and full stretch once to match your hand. Raise an
+              open palm with your other hand to freeze the camera while
+              repositioning. You can also hold Shift or use Freeze controls.
+              After releasing, match the white current-zoom marker with the cyan
+              finger marker and hold briefly to resume without a jump. Navigate
+              mode keeps pointing and swipe separate from zoom. In Navigate
+              mode, point steadily at an asset for 420 ms to select it, or hold
+              a still open palm for 750 ms to pause the flow animation. Hold a
+              pinch for one second to enter zoom; keep your middle, ring, and
+              pinky fingers curled while adjusting thumb–index spread. Open all
+              fingers briefly to switch back to rotation. Swipe an open palm
+              sideways to rotate: faster swipes turn faster, with a comfortable
+              speed limit. Relax your fingers briefly to leave rotation, then
+              match the zoom marker to resume zoom. The cursor ring shows hold
+              progress. Relax your hand briefly between actions; changing
+              directly to another gesture does not re-arm the controls. Use
+              good, even lighting. Tracking suspends while this tab is hidden.
             </p>
             <p>
               Camera frames stay on this device. Disabling gestures stops camera

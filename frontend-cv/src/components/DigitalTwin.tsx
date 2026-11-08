@@ -1,3 +1,4 @@
+import { tiltOrbit } from "./orbit";
 import { Component, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Line, OrbitControls } from "@react-three/drei";
@@ -10,15 +11,91 @@ const cyan = "#42e5ee",
 function CameraController({
   command,
   onSelect,
+  onZoomChange,
 }: {
+  onZoomChange?: (level: number) => void;
   command: ViewCommand | null;
   onSelect: (id: string) => void;
 }) {
   const controls = useRef<OrbitType>(null);
   const { camera, scene } = useThree();
+  const remainingRotation = useRef(0);
+  const remainingPitch = useRef(0);
+  const targetDistance = useRef<number | null>(null),
+    lastReported = useRef(-1),
+    reportAt = useRef(0);
+  const zoomCallback = useRef(onZoomChange);
+  zoomCallback.current = onZoomChange;
+  useFrame((state, dt) => {
+    const c = controls.current;
+    if (!c) return;
+    if (targetDistance.current !== null) {
+      const offset = camera.position.clone().sub(c.target);
+      const distance = THREE.MathUtils.damp(
+        offset.length(),
+        targetDistance.current,
+        9,
+        Math.min(dt, 0.1),
+      );
+      offset.setLength(distance);
+      camera.position.copy(c.target.clone().add(offset));
+      c.update();
+      if (Math.abs(distance - targetDistance.current) < 0.002)
+        targetDistance.current = null;
+    }
+    if (Math.abs(remainingRotation.current) > 0.0001) {
+      const amount =
+        remainingRotation.current * (1 - Math.exp(-9 * Math.min(dt, 0.1)));
+      const offset = camera.position
+        .clone()
+        .sub(c.target)
+        .applyAxisAngle(new THREE.Vector3(0, 1, 0), amount);
+      camera.position.copy(c.target.clone().add(offset));
+      remainingRotation.current -= amount;
+      c.update();
+    }
+    if (Math.abs(remainingPitch.current) > 0.0001) {
+      const requested =
+        remainingPitch.current * (1 - Math.exp(-9 * Math.min(dt, 0.1)));
+      remainingPitch.current -= requested;
+      camera.position.copy(tiltOrbit(camera.position, c.target, requested));
+      c.update();
+    }
+    const level = THREE.MathUtils.clamp(
+      (38 - camera.position.distanceTo(c.target)) / 30,
+      0,
+      1,
+    );
+    if (
+      state.clock.elapsedTime - reportAt.current > 0.04 &&
+      Math.abs(level - lastReported.current) > 0.001
+    ) {
+      zoomCallback.current?.(level);
+      lastReported.current = level;
+      reportAt.current = state.clock.elapsedTime;
+    }
+  });
   useEffect(() => {
     if (!command || !controls.current) return;
     const c = controls.current;
+    if (command.type === "zoom-stop") {
+      remainingRotation.current = 0;
+      remainingPitch.current = 0;
+      targetDistance.current = null;
+      return;
+    }
+    if (command.type === "zoom-level") {
+      targetDistance.current =
+        38 - 30 * THREE.MathUtils.clamp(command.level, 0, 1);
+      return;
+    }
+    if (command.type !== "select" && command.type !== "zoom") {
+      targetDistance.current = null;
+      if (command.type !== "rotate") {
+        remainingRotation.current = 0;
+        remainingPitch.current = 0;
+      }
+    }
     if (command.type === "select") {
       const ray = new THREE.Raycaster();
       ray.setFromCamera(
@@ -37,6 +114,15 @@ function CameraController({
       }
       return;
     }
+    if (command.type === "focus") {
+      const offset = camera.position.clone().sub(c.target).setLength(12);
+      c.target.set(
+        command.position[0],
+        command.position[1] + 1,
+        command.position[2],
+      );
+      camera.position.copy(c.target.clone().add(offset));
+    }
     if (command.type === "reset") {
       camera.position.set(14, 17, 18);
       c.target.set(0, 0, 0);
@@ -46,19 +132,16 @@ function CameraController({
       c.target.set(0, 0, 0);
     }
     if (command.type === "rotate") {
-      const offset = camera.position.clone().sub(c.target);
-      offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), command.delta);
-      camera.position.copy(c.target.clone().add(offset));
+      remainingRotation.current += command.delta;
+      remainingPitch.current += command.pitch ?? 0;
     }
     if (command.type === "zoom") {
       const offset = camera.position.clone().sub(c.target);
-      const distance = THREE.MathUtils.clamp(
-        offset.length() * command.delta,
+      targetDistance.current = THREE.MathUtils.clamp(
+        (targetDistance.current ?? offset.length()) * command.delta,
         8,
         38,
       );
-      offset.setLength(distance);
-      camera.position.copy(c.target.clone().add(offset));
     }
     c.update();
   }, [command, camera, scene, onSelect]);
@@ -66,6 +149,11 @@ function CameraController({
     <OrbitControls
       ref={controls}
       makeDefault
+      onStart={() => {
+        remainingRotation.current = 0;
+        remainingPitch.current = 0;
+        targetDistance.current = null;
+      }}
       minDistance={8}
       maxDistance={38}
       maxPolarAngle={Math.PI / 2.12}
@@ -310,16 +398,17 @@ export function DigitalTwin({
   onSelect,
   paused,
   command,
+  onZoomChange,
 }: {
   snapshot: TwinSnapshot;
   selected: string;
   onSelect: (id: string) => void;
   paused: boolean;
   command: ViewCommand | null;
+  onZoomChange?: (level: number) => void;
 }) {
   const failed =
     snapshot.equipment.find((e) => e.id === "P-01")?.status === "failed";
-  const labels = useRef<Record<string, HTMLDivElement | null>>({});
   return (
     <SceneBoundary>
       <div className="twin-canvas">
@@ -466,78 +555,104 @@ export function DigitalTwin({
             paused={paused}
             blocked
           />
-          <CameraController command={command} onSelect={onSelect} />
-          <ProjectedLabels equipment={snapshot.equipment} labels={labels} />
-        </Canvas>
-        <div className="asset-label-layer">
+          <CameraController
+            command={command}
+            onSelect={onSelect}
+            onZoomChange={onZoomChange}
+          />
           {snapshot.equipment.map((e) => (
-            <div
-              className="projected-label"
+            <EquipmentBoard
               key={e.id}
-              ref={(node) => {
-                labels.current[e.id] = node;
-              }}
-            >
-              <button
-                className={`scene-label ${e.kind !== "tank" ? "pump" : ""} ${selected === e.id ? "selected" : ""} ${e.status === "warning" ? "warning" : ""}`}
-                onClick={() => onSelect(e.id)}
-              >
-                <span>
-                  {e.id}
-                  {e.kind !== "tank" && (
-                    <b style={{ color: e.status === "failed" ? pink : cyan }}>
-                      {e.status === "failed"
-                        ? "✕ FAULT"
-                        : e.kind === "treatment"
-                          ? "TREATMENT"
-                          : e.status.toUpperCase()}
-                    </b>
-                  )}
-                </span>
-                {e.kind === "tank" && (
-                  <>
-                    <strong>
-                      {e.level?.toFixed(1)}
-                      <small>%</small>
-                    </strong>
-                    <em>
-                      {e.status === "warning" ? "▲ HIGH LEVEL" : "● NOMINAL"}
-                    </em>
-                  </>
-                )}
-              </button>
-            </div>
+              e={e}
+              selected={selected === e.id}
+              onSelect={() => onSelect(e.id)}
+            />
           ))}
-        </div>
+        </Canvas>
       </div>
     </SceneBoundary>
   );
 }
 
-function ProjectedLabels({
-  equipment,
-  labels,
+/** A world-fixed sign with separately oriented front/back text, never a billboard. */
+function EquipmentBoard({
+  e,
+  selected,
+  onSelect,
 }: {
-  equipment: Equipment[];
-  labels: React.RefObject<Record<string, HTMLDivElement | null>>;
+  e: Equipment;
+  selected: boolean;
+  onSelect: () => void;
 }) {
-  const { camera, size } = useThree();
-  const point = useMemo(() => new THREE.Vector3(), []);
-  useFrame(() => {
-    for (const e of equipment) {
-      const node = labels.current[e.id];
-      if (!node) continue;
-      point
-        .set(
-          e.position[0],
-          e.position[1] +
-            (e.kind === "tank" ? 4.1 : e.kind === "pump" ? 2.1 : 2.5),
-          e.position[2],
-        )
-        .project(camera);
-      node.style.transform = `translate(${(point.x * 0.5 + 0.5) * size.width}px,${(-point.y * 0.5 + 0.5) * size.height}px) translate(-50%,-50%)`;
-      node.style.display = point.z > 1 ? "none" : "block";
-    }
-  });
-  return null;
+  const texture = useMemo(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 768;
+    canvas.height = 384;
+    const ctx = canvas.getContext("2d")!;
+    const color =
+      e.status === "failed" ? pink : e.status === "warning" ? amber : cyan;
+    ctx.fillStyle = "#091724";
+    ctx.fillRect(0, 0, 768, 384);
+    ctx.strokeStyle = selected ? "#ffffff" : color;
+    ctx.lineWidth = 8;
+    ctx.strokeRect(4, 4, 760, 376);
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#cceaf0";
+    ctx.font = "bold 56px monospace";
+    ctx.fillText(e.id, 384, 84);
+    ctx.fillStyle = color;
+    ctx.font = "bold 96px monospace";
+    ctx.fillText(
+      e.kind === "tank"
+        ? `${e.level?.toFixed(1) ?? "—"}%`
+        : e.status.toUpperCase(),
+      384,
+      222,
+    );
+    ctx.font = "32px monospace";
+    ctx.fillText(
+      e.kind === "tank"
+        ? e.status === "warning"
+          ? "HIGH LEVEL"
+          : "NOMINAL"
+        : e.kind.toUpperCase(),
+      384,
+      322,
+    );
+    const map = new THREE.CanvasTexture(canvas);
+    map.colorSpace = THREE.SRGBColorSpace;
+    return map;
+  }, [e.id, e.kind, e.level, e.status, selected]);
+  useEffect(() => () => texture.dispose(), [texture]);
+  return (
+    <group
+      position={[
+        e.position[0],
+        e.position[1] + (e.kind === "tank" ? 4.7 : 2.7),
+        e.position[2],
+      ]}
+      userData={{ equipmentId: e.id }}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect();
+      }}
+    >
+      <mesh>
+        <boxGeometry args={[2.6, 1.3, 0.08]} />
+        <meshBasicMaterial color="#163b49" />
+      </mesh>
+      {[0, Math.PI].map((angle, i) => (
+        <group key={i} rotation={[0, angle, 0]}>
+          <mesh position={[0, 0, 0.045]}>
+            <planeGeometry args={[2.58, 1.28]} />
+            <meshBasicMaterial map={texture} toneMapped={false} />
+          </mesh>
+        </group>
+      ))}
+      <mesh position={[0, -0.85, 0]}>
+        <boxGeometry args={[0.045, 0.4, 0.045]} />
+        <meshBasicMaterial color={cyan} />
+      </mesh>
+    </group>
+  );
 }

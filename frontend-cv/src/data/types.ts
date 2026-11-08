@@ -33,8 +33,11 @@ export interface TwinSource {
   ) => () => void;
 }
 export type ViewCommand =
-  | { type: "rotate"; delta: number }
+  | { type: "rotate"; delta: number; pitch?: number }
   | { type: "zoom"; delta: number }
+  | { type: "zoom-level"; level: number }
+  | { type: "zoom-stop" }
   | { type: "select"; x: number; y: number }
   | { type: "reset" }
-  | { type: "top" };
+  | { type: "top" }
+  | { type: "focus"; position: [number, number, number] };

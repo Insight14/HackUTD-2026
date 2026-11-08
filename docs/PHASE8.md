@@ -19,7 +19,8 @@ The default experience uses clearly labeled synthetic fixtures. Select a scenari
 - Drag to orbit; scroll to zoom; click an asset to inspect it.
 - Arrow keys rotate; + / − zoom; R resets; Space pauses flow animations.
 - Equipment telemetry view and help asset buttons provide conventional selection alternatives.
-- Enable gestures to opt into webcam tracking. Point selects; open palm pauses/resumes; pinch zooms; palm swipe rotates. Hold still briefly, then release before repeating. Camera capture stops when disabled.
+- Enable gestures to opt into webcam tracking. Show the control hand first. Hold a pinch for one second to enter zoom mode; spread or close thumb and index to zoom. Open all fingers to return to rotation. Swipe an open palm sideways to orbit horizontally, or vertically to tilt between side and top views. The other hand’s open palm, Shift, or the Freeze button pauses hand control while repositioning. Camera capture stops when disabled.
+- Zoom has closed/full-stretch calibration, a visible slider, and buttons. After a freeze or tracking loss, match finger spread to the current zoom marker to resume without a jump. The scene uses fixed double-sided equipment boards with readable text from either face.
 - Plan approval and equipment actuation are intentionally absent from gesture controls.
 
 ## Backend handoff
