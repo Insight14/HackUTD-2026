@@ -272,6 +272,14 @@ export default function App() {
 
     connectSim();
 
+    // Initial HTTP fetch to populate console state on first paint
+    fetch('/api/simulator/state')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data && data.tanks) setSimState(data);
+      })
+      .catch(() => {});
+
     return () => {
       isMounted = false;
       if (timer) clearTimeout(timer);
@@ -475,10 +483,10 @@ export default function App() {
     } catch (err) {}
   };
 
-  const primaryTank = simState?.tanks.find((t) => t.id === 'tank_a');
-  const primarySensor = simState?.sensor_readings['tank_a'];
-  const p1 = simState?.pumps.find((p) => p.id === 'p_1');
-  const recommendedPlan = sharedState?.plans.find((p) => p.is_recommended) ?? sharedState?.plans[0];
+  const primaryTank = simState?.tanks?.find((t) => t.id === 'tank_a');
+  const primarySensor = simState?.sensor_readings ? simState.sensor_readings['tank_a'] : undefined;
+  const p1 = simState?.pumps?.find((p) => p.id === 'p_1');
+  const recommendedPlan = sharedState?.plans?.find((p) => p.is_recommended) ?? sharedState?.plans?.[0];
 
   if (activeView === 'FIELD_TECH') {
     return (
@@ -717,8 +725,8 @@ export default function App() {
               <span className="text-[10px] text-slate-500 font-mono">Synced via SpacetimeDB</span>
             </h3>
             <div className="space-y-2 font-mono text-xs">
-              {sharedState?.options.map((opt) => {
-                const claim = sharedState.action_claims.find((c) => c.action_id === opt.id);
+              {sharedState?.options?.map((opt) => {
+                const claim = sharedState?.action_claims?.find((c) => c.action_id === opt.id);
                 return (
                   <div
                     key={opt.id}
@@ -915,7 +923,7 @@ export default function App() {
             </span>
             <div className="flex items-center gap-3">
               <span className="text-slate-200 font-bold">
-                {sharedState?.handoff_items.filter((h) => !h.resolved).length ?? 0} open items
+                {sharedState?.handoff_items?.filter((h) => !h.resolved)?.length ?? 0} open items
               </span>
               <button
                 onClick={() => setShowNoteModal(true)}
@@ -934,7 +942,7 @@ export default function App() {
               Active Shift Handoff Log (Persistent Multi-Operator Memory)
             </h4>
             <div className="space-y-1.5 font-mono text-xs">
-              {sharedState.handoff_items.map((item) => (
+              {sharedState?.handoff_items?.map((item) => (
                 <div
                   key={item.id}
                   className={`p-2.5 rounded border flex justify-between items-center ${
@@ -1062,7 +1070,7 @@ export default function App() {
         currentUser={currentUserName}
         onSignHandoff={handleSignHandoff}
         tankLevelPercent={primaryTank?.fill_fraction ? primaryTank.fill_fraction * 100 : 46.2}
-        openClaimsCount={sharedState?.action_claims.filter((c) => c.status !== 'COMPLETED').length || 0}
+        openClaimsCount={sharedState?.action_claims?.filter((c) => c.status !== 'COMPLETED')?.length || 0}
       />
 
       {/* Footer Audit Bar */}
