@@ -158,7 +158,8 @@ class NemotronAgent:
                 }
                 resp = httpx.post(f"{self.base_url}/chat/completions", headers=headers, json=payload, timeout=8.0)
                 if resp.status_code == 200:
-                    ai_content = resp.json()["choices"][0]["message"]["content"]
+                    choice = resp.json()["choices"][0]["message"]
+                    ai_content = choice.get("content") or choice.get("reasoning_content")
                     if ai_content and len(ai_content.strip()) > 30:
                         explanation = ai_content
             except Exception:
