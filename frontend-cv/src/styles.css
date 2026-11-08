@@ -1844,6 +1844,7 @@ footer > span:first-child {
   to { opacity: 1; transform: scale(1.35); }
 }
 .leak-btn {
+  pointer-events: auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;

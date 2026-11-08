@@ -72,3 +72,9 @@ Thumbs.db
 playwright-report/
 test-results/
 node_modules
+
+# Video production raw clips and temp files
+video_raw_clips/
+final_video_output/
+*.webm
+
