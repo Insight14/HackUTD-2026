@@ -19,23 +19,26 @@
 - **SDK Verification:** Tiger Data is built on PostgreSQL with TimescaleDB time-series extensions (hypertables, `time_bucket`, continuous aggregates).
 - **Driver:** Accessed using standard Python database drivers (`asyncpg` / `psycopg3` / `SQLAlchemy`). No proprietary closed-source driver is required.
 - **Time-Series Queries:** Hypertables support high-velocity sensor feeds (levels, flow rates, pressures, forecast errors) and fast rolling window aggregates.
-- **Fallback Strategy:** When `TIGER_DATA_ENABLED=false` or offline, an in-memory ring-buffer / SQLite time-series adapter provides seamless local development and automated CI testing.
+- **Live Verification Status:** **CONNECTED & TESTED LIVE**. Connected to Tiger Cloud cluster (`HackUTD-2026`) via `asyncpg`. Hypertables `tidewatch_telemetry` and `tidewatch_forecast_scorecard` were successfully provisioned and verified with live `INSERT` and `SELECT` query cycles.
+- **Fallback Strategy:** When `TIGER_DATA_ENABLED=false` or offline, an in-memory ring-buffer time-series adapter provides seamless local development and automated CI testing.
 
 ---
 
 ## 3. NVIDIA Nemotron
 - **API Verification:** NVIDIA models (including `nvidia/nemotron-4-34b-instruct`) are hosted via NVIDIA NIM at `https://integrate.api.nvidia.com/v1`, exposing a standard OpenAI-compatible completions API.
 - **SDK:** Uses standard `openai.OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key="nvapi-...")` client.
-- **Tool-Use Pipeline:** Model parameters use structured tool/function definitions. Responses cite tool outputs directly.
+- **Tool-Use Pipeline:** Model parameters use structured tool/function definitions. Responses cite tool outputs directly using `[chip:...]` markdown tags.
+- **Live Verification Status:** **CONNECTED & TESTED LIVE**. Model `nvidia/nemotron-4-34b-instruct` successfully streamed responses and cited deterministic tool chips against live NIM endpoints.
 - **Safety Invariant:** The agent is purely explanatory. Approval endpoints in FastAPI and SpacetimeDB reject any programmatic approval request that does not originate from authenticated human operator sessions.
-- **Mock/Offline Mode:** Includes a deterministic mock agent that generates exact tool-call traces for local offline scenarios (S1-S5) without external network dependency.
+- **Mock/Offline Mode:** Includes a deterministic fallback agent that generates exact tool-call traces for local offline scenarios (S1-S5) without external network dependency.
 
 ---
 
 ## 4. MongoDB
-- **Protocol:** Standard MongoDB driver (`motor` for async FastAPI or `pymongo`).
+- **Protocol:** Standard MongoDB async driver (`motor` 3.7.1 & `pymongo` 4.19.0).
 - **Use Case:** Collection of SOP documents, EOG runbooks, and synthetic historical incident cards.
-- **Fallback Strategy:** Embedded JSON documents in `config/runbooks.json` provide instant local fallback when MongoDB credentials are not configured.
+- **Live Verification Status:** **VERIFIED**. Lifespan lifecycle hooks auto-ping the configured database and automatically seed `runbooks` and `incidents` collections upon connection.
+- **Fallback Strategy:** Embedded JSON documents in `config/runbooks_and_procedures.json` provide instant local fallback when MongoDB credentials are not configured.
 
 ---
 
