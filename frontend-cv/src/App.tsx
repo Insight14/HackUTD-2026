@@ -151,18 +151,19 @@ export default function App({ source }: { source?: TwinSource }) {
     setInspectorTab("telemetry");
   }, []);
   const onGesture = useCallback((e: HandEvent) => {
+    // Continuous smooth orbital rotation following the hand
     if (e.gesture === "pan") {
       setCommand({ type: "rotate", delta: e.delta ?? 0 });
     }
-    if (e.gesture === "zoom_delta") {
-      setCommand({ type: "zoom", delta: e.delta ?? 0.95 });
-    }
+    // Full pinch: Zoom in aggressively toward the model
     if (e.gesture === "pinch") {
-      setCommand({ type: "zoom", delta: 0.92 });
+      setCommand({ type: "zoom", delta: 0.86 });
     }
-    if (e.gesture === "swipe") {
-      setCommand({ type: "rotate", delta: (e.delta ?? 1) * 0.4 });
+    // Spread / L-shape / V-sign: Zoom out aggressively to wide aerial view
+    if (e.gesture === "pinch_open") {
+      setCommand({ type: "zoom", delta: 1.15 });
     }
+    // Point: laser select
     if (e.gesture === "point") {
       setCommand({ type: "select", x: e.x, y: e.y });
     }

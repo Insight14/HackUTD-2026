@@ -3,15 +3,15 @@ export interface Point {
   y: number;
   z: number;
 }
-export type Gesture = "point" | "palm" | "pinch" | "none";
+export type Gesture = "point" | "palm" | "pinch" | "pinch_open" | "none";
 export const gestureConfig = {
-  confidence: 0.62,
-  dwellMs: 120,
-  cooldownMs: 220,
-  pinchRatio: 0.35,
-  swipeDistance: 0.09,
-  swipeWindowMs: 300,
-  smoothing: 0.70,
+  confidence: 0.75,
+  dwellMs: 420,
+  cooldownMs: 1100,
+  pinchRatio: 0.32,
+  swipeDistance: 0.18,
+  swipeWindowMs: 420,
+  smoothing: 0.3,
 };
 export function classifyHand(p: Point[], config = gestureConfig): Gesture {
   if (p.length !== 21) return "none";
@@ -19,15 +19,28 @@ export function classifyHand(p: Point[], config = gestureConfig): Gesture {
     Math.hypot(p[a].x - p[b].x, p[a].y - p[b].y, p[a].z - p[b].z);
   const scale = distance(0, 9);
   if (scale < 0.015) return "none";
-  if (distance(4, 8) / scale < config.pinchRatio) return "pinch";
+
+  const pinchDist = distance(4, 8) / scale;
+
+  // 1. Full Pinch: Thumb tip (4) and Index tip (8) touch => ZOOM IN
+  if (pinchDist < config.pinchRatio) return "pinch";
+
   const extended = (tip: number, pip: number) =>
     distance(tip, 0) > distance(pip, 0) * 1.14;
   const index = extended(8, 6),
     middle = extended(12, 10),
     ring = extended(16, 14),
     pinky = extended(20, 18);
+
+  // 2. Open Palm: All 4 fingers extended => ORBIT / ROTATE
   if (index && middle && ring && pinky) return "palm";
+
+  // 3. Zoom Out: V-sign / two-finger spread (index & middle extended, ring & pinky curled)
+  if (index && middle && !ring && !pinky && distance(8, 12) / scale > 0.35) return "pinch_open";
+
+  // 4. Pointing: Only index finger extended => SELECT / RAYCAST
   if (index && !middle && !ring && !pinky) return "point";
+
   return "none";
 }
 export class GestureGate {

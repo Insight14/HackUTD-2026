@@ -54,8 +54,8 @@ function CameraController({
       const offset = camera.position.clone().sub(c.target);
       const distance = THREE.MathUtils.clamp(
         offset.length() * command.delta,
-        8,
-        38,
+        4,
+        48,
       );
       offset.setLength(distance);
       camera.position.copy(c.target.clone().add(offset));
@@ -66,8 +66,8 @@ function CameraController({
     <OrbitControls
       ref={controls}
       makeDefault
-      minDistance={8}
-      maxDistance={38}
+      minDistance={4}
+      maxDistance={48}
       maxPolarAngle={Math.PI / 2.12}
       enableDamping
       dampingFactor={0.08}

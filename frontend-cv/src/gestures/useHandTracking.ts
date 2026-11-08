@@ -7,7 +7,7 @@ import {
   type Point,
 } from "./recognizer";
 export type HandEvent = {
-  gesture: Gesture | "swipe" | "pan" | "zoom_delta";
+  gesture: Gesture | "swipe" | "pan";
   x: number;
   y: number;
   delta?: number;
@@ -156,64 +156,71 @@ export function useHandTracking(
                 }
                 const g = classifyHand(smoothed);
                 setGesture(g);
-                setStatus("Hand tracked");
+                setStatus(
+                  g === "pinch"
+                    ? "Zooming in (Pinch)"
+                    : g === "pinch_open"
+                      ? "Zooming out (Spread)"
+                      : g === "palm"
+                        ? "Rotating (Move hand)"
+                        : g === "point"
+                          ? "Inspecting (Pointing)"
+                          : "Hand tracked"
+                );
                 const x = 1 - smoothed[8].x,
                   y = smoothed[8].y;
                 setPointer({ x, y });
-                const palmX = 1 - smoothed[0].x;
-                const palmY = smoothed[0].y;
+                // Use center of palm (landmark 9: middle MCP) for stable, jitter-free tracking
+                const palmX = 1 - smoothed[9].x;
+                const palmY = smoothed[9].y;
 
                 // Real-time continuous fluid interaction
                 if (lastPos) {
                   const dx = palmX - lastPos.x;
                   const dy = palmY - lastPos.y;
 
-                  if (g === "palm" && Math.abs(dx) > 0.002) {
-                    callback.current({
-                      gesture: "pan",
-                      x,
-                      y,
-                      dx,
-                      dy,
-                      delta: -dx * 3.8,
-                    });
-                  } else if (g === "pinch") {
-                    if (Math.abs(dy) > 0.002) {
+                  // Filter out 1-frame tracking drop/teleport glitches
+                  if (Math.abs(dx) < 0.25) {
+                    if (g === "palm" && Math.abs(dx) > 0.002) {
                       callback.current({
-                        gesture: "zoom_delta",
+                        gesture: "pan",
                         x,
                         y,
-                        delta: 1.0 + dy * 2.8,
+                        dx,
+                        dy,
+                        delta: -dx * 4.2,
                       });
                     }
-                  } else if (g === "point") {
-                    callback.current({
-                      gesture: "point",
-                      x,
-                      y,
-                    });
                   }
                 }
                 lastPos = { x: palmX, y: palmY, t: now };
 
-                if (!anchor || now - anchor.t > gestureConfig.swipeWindowMs)
-                  anchor = { x: palmX, t: now };
-                if (
-                  g === "palm" &&
-                  Math.abs(palmX - anchor.x) > gestureConfig.swipeDistance &&
-                  now - lastSwipe > gestureConfig.cooldownMs
-                ) {
+                // Continuous zoom in while holding full pinch
+                if (g === "pinch") {
                   callback.current({
-                    gesture: "swipe",
+                    gesture: "pinch",
                     x,
                     y,
-                    delta: Math.sign(palmX - anchor.x),
                   });
-                  lastSwipe = now;
-                  anchor = undefined;
-                  gate.reset();
-                } else if (gate.update(g, now))
-                  callback.current({ gesture: g, x, y });
+                }
+
+                // Continuous zoom out while holding wide spread / L-shape
+                if (g === "pinch_open") {
+                  callback.current({
+                    gesture: "pinch_open",
+                    x,
+                    y,
+                  });
+                }
+
+                // Continuous point selection
+                if (g === "point") {
+                  callback.current({
+                    gesture: "point",
+                    x,
+                    y,
+                  });
+                }
               } else {
                 setPointer(null);
                 setStatus("Searching for hand");
