@@ -245,38 +245,68 @@ export default function App() {
     setTimeout(() => setNotification(null), 4000);
   };
 
-  // Connect to Simulator Stream
+  // Connect to Simulator Stream with auto-reconnect
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/simulator/ws`;
-    const ws = new WebSocket(wsUrl);
-    simWsRef.current = ws;
+    let isMounted = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.tanks) setSimState(data);
-      } catch (err) {}
+    const connectSim = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/api/simulator/ws`;
+      const ws = new WebSocket(wsUrl);
+      simWsRef.current = ws;
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.tanks) setSimState(data);
+        } catch (err) {}
+      };
+
+      ws.onclose = () => {
+        if (isMounted) {
+          timer = setTimeout(connectSim, 2000);
+        }
+      };
     };
 
-    return () => ws.close();
+    connectSim();
+
+    return () => {
+      isMounted = false;
+      if (timer) clearTimeout(timer);
+      if (simWsRef.current) simWsRef.current.close();
+    };
   }, []);
 
-  // Connect to SpacetimeDB Real-Time State Stream
+  // Connect to SpacetimeDB Real-Time State Stream with auto-reconnect
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/spacetimedb/ws`;
-    const ws = new WebSocket(wsUrl);
-    stdbWsRef.current = ws;
+    let isMounted = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    ws.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data);
-        if (payload.state) {
-          setSharedState(payload.state);
+    const connectStdb = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/api/spacetimedb/ws`;
+      const ws = new WebSocket(wsUrl);
+      stdbWsRef.current = ws;
+
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.state) {
+            setSharedState(payload.state);
+          }
+        } catch (err) {}
+      };
+
+      ws.onclose = () => {
+        if (isMounted) {
+          timer = setTimeout(connectStdb, 2000);
         }
-      } catch (err) {}
+      };
     };
+
+    connectStdb();
 
     // Initial HTTP fetch
     fetch('/api/spacetimedb/state')
@@ -284,7 +314,11 @@ export default function App() {
       .then((data) => setSharedState(data))
       .catch(() => {});
 
-    return () => ws.close();
+    return () => {
+      isMounted = false;
+      if (timer) clearTimeout(timer);
+      if (stdbWsRef.current) stdbWsRef.current.close();
+    };
   }, []);
 
   // Simulator controls

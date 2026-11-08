@@ -210,6 +210,34 @@ class TigerDataAdapter:
             self.telemetry_store.pop(0)  # Evict oldest
         self.telemetry_store.append(point)
 
+        if self._connected and self._pool:
+            try:
+                import asyncio
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._persist_telemetry_point(point))
+            except RuntimeError:
+                pass
+
+    async def _persist_telemetry_point(self, point: TelemetryPoint) -> None:
+        """Persist telemetry row to live Tiger Cloud Timescale hypertable."""
+        if not self._connected or not self._pool:
+            return
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO tidewatch_telemetry (
+                        time, tank_id, level_bbl, fill_fraction,
+                        inflow_bbl_per_hr, outflow_bbl_per_hr, net_rate_bbl_per_hr,
+                        pump_id, pump_status, pump_discharge_psi, pump_vibration_rms,
+                        is_synthetic
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                """, point.timestamp, point.tank_id, point.level_bbl, point.fill_fraction,
+                     point.inflow_bbl_per_hr, point.outflow_bbl_per_hr, point.net_rate_bbl_per_hr,
+                     point.pump_id, point.pump_status, point.pump_discharge_psi,
+                     point.pump_vibration_rms, point.is_synthetic)
+        except Exception as e:
+            logger.debug(f"Failed to persist telemetry point to Tiger Cloud: {e}")
+
     def query_history(
         self,
         tank_id: str = "tank_a",
@@ -301,7 +329,35 @@ class TigerDataAdapter:
             is_synthetic=True,
         )
         self.scorecard_store.append(entry)
+
+        if self._connected and self._pool:
+            try:
+                import asyncio
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._persist_forecast_entry(entry))
+            except RuntimeError:
+                pass
+
         return entry
+
+    async def _persist_forecast_entry(self, entry: ForecastScorecardEntry) -> None:
+        """Persist forecast scorecard entry to live Tiger Cloud Timescale hypertable."""
+        if not self._connected or not self._pool:
+            return
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO tidewatch_forecast_scorecard (
+                        time, id, target_tank_id, target_time, horizon_minutes,
+                        predicted_level_bbl, predicted_p10_minutes, predicted_p90_minutes,
+                        actual_level_bbl, error_bbl, within_p10_p90_band, is_synthetic
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                """, entry.created_at, entry.id, entry.target_tank_id, entry.target_time,
+                     entry.horizon_minutes, entry.predicted_level_bbl, entry.predicted_p10_minutes,
+                     entry.predicted_p90_minutes, entry.actual_level_bbl, entry.error_bbl,
+                     entry.within_p10_p90_band, entry.is_synthetic)
+        except Exception as e:
+            logger.debug(f"Failed to persist forecast scorecard to Tiger Cloud: {e}")
 
     def update_actuals_and_scorecard(self, current_tank_levels: Dict[str, float]) -> ScorecardSummary:
         """Audit past forecasts against actual realized measurements when target times arrive."""
