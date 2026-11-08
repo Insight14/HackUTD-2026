@@ -1,3 +1,4 @@
+import { tiltOrbit } from "./orbit";
 import { Component, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Line, OrbitControls } from "@react-three/drei";
@@ -10,34 +11,91 @@ const cyan = "#42e5ee",
 function CameraController({
   command,
   onSelect,
+  onZoomChange,
 }: {
+  onZoomChange?: (level: number) => void;
   command: ViewCommand | null;
   onSelect: (id: string) => void;
 }) {
   const controls = useRef<OrbitType>(null);
   const { camera, scene } = useThree();
-  const rotVelocity = useRef(0);
-
-  // Physics animation loop: applies rotational momentum and smooth deceleration
-  useFrame(() => {
-    if (!controls.current) return;
+  const remainingRotation = useRef(0);
+  const remainingPitch = useRef(0);
+  const targetDistance = useRef<number | null>(null),
+    lastReported = useRef(-1),
+    reportAt = useRef(0);
+  const zoomCallback = useRef(onZoomChange);
+  zoomCallback.current = onZoomChange;
+  useFrame((state, dt) => {
     const c = controls.current;
-
-    if (Math.abs(rotVelocity.current) > 0.0002) {
+    if (!c) return;
+    if (targetDistance.current !== null) {
       const offset = camera.position.clone().sub(c.target);
-      offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), rotVelocity.current);
+      const distance = THREE.MathUtils.damp(
+        offset.length(),
+        targetDistance.current,
+        9,
+        Math.min(dt, 0.1),
+      );
+      offset.setLength(distance);
       camera.position.copy(c.target.clone().add(offset));
       c.update();
-      // Decay factor for realistic rotational inertia / friction
-      rotVelocity.current *= 0.93;
-    } else {
-      rotVelocity.current = 0;
+      if (Math.abs(distance - targetDistance.current) < 0.002)
+        targetDistance.current = null;
+    }
+    if (Math.abs(remainingRotation.current) > 0.0001) {
+      const amount =
+        remainingRotation.current * (1 - Math.exp(-9 * Math.min(dt, 0.1)));
+      const offset = camera.position
+        .clone()
+        .sub(c.target)
+        .applyAxisAngle(new THREE.Vector3(0, 1, 0), amount);
+      camera.position.copy(c.target.clone().add(offset));
+      remainingRotation.current -= amount;
+      c.update();
+    }
+    if (Math.abs(remainingPitch.current) > 0.0001) {
+      const requested =
+        remainingPitch.current * (1 - Math.exp(-9 * Math.min(dt, 0.1)));
+      remainingPitch.current -= requested;
+      camera.position.copy(tiltOrbit(camera.position, c.target, requested));
+      c.update();
+    }
+    const level = THREE.MathUtils.clamp(
+      (38 - camera.position.distanceTo(c.target)) / 30,
+      0,
+      1,
+    );
+    if (
+      state.clock.elapsedTime - reportAt.current > 0.04 &&
+      Math.abs(level - lastReported.current) > 0.001
+    ) {
+      zoomCallback.current?.(level);
+      lastReported.current = level;
+      reportAt.current = state.clock.elapsedTime;
     }
   });
-
   useEffect(() => {
     if (!command || !controls.current) return;
     const c = controls.current;
+    if (command.type === "zoom-stop") {
+      remainingRotation.current = 0;
+      remainingPitch.current = 0;
+      targetDistance.current = null;
+      return;
+    }
+    if (command.type === "zoom-level") {
+      targetDistance.current =
+        38 - 30 * THREE.MathUtils.clamp(command.level, 0, 1);
+      return;
+    }
+    if (command.type !== "select" && command.type !== "zoom") {
+      targetDistance.current = null;
+      if (command.type !== "rotate") {
+        remainingRotation.current = 0;
+        remainingPitch.current = 0;
+      }
+    }
     if (command.type === "select") {
       const ray = new THREE.Raycaster();
       ray.setFromCamera(
@@ -56,32 +114,34 @@ function CameraController({
       }
       return;
     }
+    if (command.type === "focus") {
+      const offset = camera.position.clone().sub(c.target).setLength(12);
+      c.target.set(
+        command.position[0],
+        command.position[1] + 1,
+        command.position[2],
+      );
+      camera.position.copy(c.target.clone().add(offset));
+    }
     if (command.type === "reset") {
-      rotVelocity.current = 0;
       camera.position.set(14, 17, 18);
       c.target.set(0, 0, 0);
     }
     if (command.type === "top") {
-      rotVelocity.current = 0;
       camera.position.set(0.01, 23, 0.01);
       c.target.set(0, 0, 0);
     }
     if (command.type === "rotate") {
-      const offset = camera.position.clone().sub(c.target);
-      offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), command.delta);
-      camera.position.copy(c.target.clone().add(offset));
-      // Impart momentum proportional to hand velocity so faster flicks spin further
-      rotVelocity.current = command.delta * 0.85;
+      remainingRotation.current += command.delta;
+      remainingPitch.current += command.pitch ?? 0;
     }
     if (command.type === "zoom") {
       const offset = camera.position.clone().sub(c.target);
-      const distance = THREE.MathUtils.clamp(
-        offset.length() * command.delta,
-        4,
-        48,
+      targetDistance.current = THREE.MathUtils.clamp(
+        (targetDistance.current ?? offset.length()) * command.delta,
+        8,
+        38,
       );
-      offset.setLength(distance);
-      camera.position.copy(c.target.clone().add(offset));
     }
     c.update();
   }, [command, camera, scene, onSelect]);
@@ -89,8 +149,13 @@ function CameraController({
     <OrbitControls
       ref={controls}
       makeDefault
-      minDistance={4}
-      maxDistance={48}
+      onStart={() => {
+        remainingRotation.current = 0;
+        remainingPitch.current = 0;
+        targetDistance.current = null;
+      }}
+      minDistance={8}
+      maxDistance={38}
       maxPolarAngle={Math.PI / 2.12}
       enableDamping
       dampingFactor={0.08}
@@ -106,6 +171,7 @@ function Tank({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const large = e.id === "T-104";
   const water = useRef<THREE.Mesh>(null);
   const level = (e.level ?? 0) / 100;
   const color = e.status === "warning" ? amber : cyan;
@@ -184,12 +250,157 @@ function Tank({
           />
         );
       })}
+      {large && (
+        <>
+          <mesh position={[0, 3.57, 0]}>
+            <coneGeometry args={[1.28, 0.45, 48]} />
+            <meshStandardMaterial
+              color="#193a46"
+              metalness={0.65}
+              roughness={0.3}
+            />
+          </mesh>
+          <mesh position={[0, 3.46, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[1.42, 1.66, 48]} />
+            <meshStandardMaterial
+              color="#1d4956"
+              metalness={0.6}
+              roughness={0.4}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+          {Array.from({ length: 8 }, (_, i) => {
+            const angle = (i * Math.PI) / 4;
+            return (
+              <mesh
+                key={i}
+                position={[
+                  Math.cos(angle) * 1.58,
+                  3.72,
+                  Math.sin(angle) * 1.58,
+                ]}
+              >
+                <cylinderGeometry args={[0.025, 0.025, 0.52, 8]} />
+                <meshBasicMaterial color={amber} />
+              </mesh>
+            );
+          })}
+          <mesh position={[0, 4, 0]} rotation={[Math.PI / 2, 0, 0]}>
+            <torusGeometry args={[1.58, 0.025, 6, 48]} />
+            <meshBasicMaterial color={amber} />
+          </mesh>
+          {[-0.22, 0.22].map((x) => (
+            <mesh key={x} position={[x, 1.8, 1.27]}>
+              <boxGeometry args={[0.035, 3.1, 0.035]} />
+              <meshBasicMaterial color="#c4a76f" />
+            </mesh>
+          ))}
+          {[0.6, 1.1, 1.6, 2.1, 2.6, 3.1].map((y) => (
+            <mesh key={y} position={[0, y, 1.29]}>
+              <boxGeometry args={[0.47, 0.035, 0.035]} />
+              <meshBasicMaterial color="#c4a76f" />
+            </mesh>
+          ))}
+        </>
+      )}
       <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry
           args={[selected ? 1.9 : 1.65, selected ? 1.95 : 1.67, 64]}
         />
         <meshBasicMaterial
           color={selected ? pink : color}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+    </group>
+  );
+}
+function BufferTank({
+  e,
+  selected,
+  onSelect,
+}: {
+  e: Equipment;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const water = useRef<THREE.Mesh>(null);
+  const level = (e.level ?? 0) / 100;
+  useFrame((_, dt) => {
+    if (!water.current) return;
+    water.current.scale.y = THREE.MathUtils.damp(
+      water.current.scale.y,
+      Math.max(0.01, level),
+      4,
+      dt,
+    );
+    water.current.position.y = 0.2 + 1.35 * water.current.scale.y;
+  });
+  return (
+    <group
+      position={e.position}
+      userData={{ equipmentId: e.id }}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect();
+      }}
+    >
+      <mesh position={[0, 0.12, 0]}>
+        <boxGeometry args={[3.15, 0.24, 2.2]} />
+        <meshStandardMaterial color="#142b37" />
+      </mesh>
+      <mesh
+        ref={water}
+        position={[0, 0.2 + 1.35 * level, 0]}
+        scale={[1, level, 1]}
+      >
+        <boxGeometry args={[2.85, 2.7, 1.9]} />
+        <meshStandardMaterial
+          color={cyan}
+          emissive={cyan}
+          emissiveIntensity={0.38}
+          transparent
+          opacity={0.38}
+        />
+      </mesh>
+      {[-1.52, 1.52].map((x) => (
+        <mesh key={x} position={[x, 1.55, 0]}>
+          <boxGeometry args={[0.1, 3, 2.2]} />
+          <meshStandardMaterial color="#174551" transparent opacity={0.65} />
+        </mesh>
+      ))}
+      {[-1.04, 1.04].map((z) => (
+        <mesh key={z} position={[0, 1.55, z]}>
+          <boxGeometry args={[3.05, 3, 0.1]} />
+          <meshStandardMaterial color="#174551" transparent opacity={0.65} />
+        </mesh>
+      ))}
+      <mesh position={[0, 3.08, 0]}>
+        <boxGeometry args={[3.2, 0.12, 2.3]} />
+        <meshStandardMaterial
+          color="#20434d"
+          metalness={0.7}
+          roughness={0.35}
+          transparent
+          opacity={0.28}
+        />
+      </mesh>
+      {[-1.5, 1.5].map((x) => (
+        <mesh key={x} position={[x, 3.16, 0]}>
+          <boxGeometry args={[0.05, 0.08, 2.3]} />
+          <meshBasicMaterial color={cyan} />
+        </mesh>
+      ))}
+      <mesh position={[0, 3.16, 0]}>
+        <boxGeometry args={[3.1, 0.08, 0.05]} />
+        <meshBasicMaterial color={cyan} />
+      </mesh>
+      <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry
+          args={[selected ? 2.0 : 1.82, selected ? 2.04 : 1.85, 64]}
+        />
+        <meshBasicMaterial
+          color={selected ? pink : cyan}
           side={THREE.DoubleSide}
         />
       </mesh>
@@ -247,6 +458,111 @@ function Pump({
           </mesh>
         ))}
       </group>
+      <mesh position={[-0.82, 0.72, -0.42]} rotation={[0, 0, Math.PI / 2]}>
+        <cylinderGeometry args={[0.34, 0.34, 0.72, 20]} />
+        <meshStandardMaterial
+          color="#244652"
+          metalness={0.6}
+          roughness={0.35}
+        />
+      </mesh>
+      <mesh position={[0.86, 0.87, 0]}>
+        <boxGeometry args={[0.38, 0.63, 0.56]} />
+        <meshStandardMaterial
+          color={e.status === "standby" ? "#303a57" : "#174958"}
+        />
+      </mesh>
+      <mesh position={[0.86, 1.21, 0.29]}>
+        <boxGeometry args={[0.25, 0.1, 0.025]} />
+        <meshBasicMaterial color={color} />
+      </mesh>
+      {e.status === "failed" && (
+        <mesh position={[0, 1.46, 0]}>
+          <octahedronGeometry args={[0.17]} />
+          <meshBasicMaterial color={pink} />
+        </mesh>
+      )}
+      {e.status === "standby" && (
+        <mesh position={[0, 1.57, 0]} rotation={[0, 0, Math.PI / 2]}>
+          <cylinderGeometry args={[0.11, 0.11, 1.5, 12]} />
+          <meshBasicMaterial color="#9ca9be" />
+        </mesh>
+      )}
+    </group>
+  );
+}
+function TreatmentSkid({
+  e,
+  onSelect,
+}: {
+  e: Equipment;
+  onSelect: () => void;
+}) {
+  return (
+    <group
+      position={e.position}
+      userData={{ equipmentId: e.id }}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect();
+      }}
+    >
+      <mesh position={[0, 0.18, 0]}>
+        <boxGeometry args={[3.2, 0.35, 2.8]} />
+        <meshStandardMaterial
+          color="#183844"
+          metalness={0.45}
+          roughness={0.45}
+        />
+      </mesh>
+      {[-0.92, 0, 0.92].map((x, i) => (
+        <group key={x} position={[x, 0.35, 0]}>
+          <mesh position={[0, 0.83, 0]}>
+            <cylinderGeometry args={[0.36, 0.36, 1.65, 24]} />
+            <meshStandardMaterial
+              color="#1b4b5a"
+              metalness={0.6}
+              roughness={0.35}
+            />
+          </mesh>
+          <mesh position={[0, 1.7, 0]}>
+            <sphereGeometry args={[0.36, 16, 12]} />
+            <meshStandardMaterial
+              color="#245a6b"
+              metalness={0.5}
+              roughness={0.4}
+            />
+          </mesh>
+          {[0.16, 1.45].map((y) => (
+            <mesh key={y} position={[0, y, 0]} rotation={[Math.PI / 2, 0, 0]}>
+              <torusGeometry args={[0.37, 0.025, 6, 24]} />
+              <meshBasicMaterial color={i === 1 ? amber : cyan} />
+            </mesh>
+          ))}
+          <mesh position={[0, 0.87, 0.38]}>
+            <boxGeometry args={[0.34, 0.58, 0.06]} />
+            <meshBasicMaterial color={cyan} transparent opacity={0.6} />
+          </mesh>
+        </group>
+      ))}
+      <mesh position={[0, 0.48, 1.03]} rotation={[0, 0, Math.PI / 2]}>
+        <cylinderGeometry args={[0.08, 0.08, 2.5, 12]} />
+        <meshStandardMaterial
+          color={cyan}
+          emissive={cyan}
+          emissiveIntensity={0.35}
+        />
+      </mesh>
+      <mesh position={[0, 0.65, -1.2]}>
+        <boxGeometry args={[2.7, 0.08, 0.08]} />
+        <meshBasicMaterial color={cyan} />
+      </mesh>
+      {[-1.35, 1.35].map((x) => (
+        <mesh key={x} position={[x, 0.65, -1.2]}>
+          <boxGeometry args={[0.07, 1.1, 0.07]} />
+          <meshBasicMaterial color={cyan} />
+        </mesh>
+      ))}
     </group>
   );
 }
@@ -254,10 +570,12 @@ function Pipe({
   points,
   paused,
   blocked = false,
+  inactive = false,
 }: {
   points: [number, number, number][];
   paused: boolean;
   blocked?: boolean;
+  inactive?: boolean;
 }) {
   const curve = useMemo(
     () =>
@@ -270,41 +588,176 @@ function Pipe({
     [points],
   );
   const particles = useRef<THREE.Group>(null);
-  const progress = useRef(0);
-  useFrame((_, dt) => {
-    if (!paused) progress.current += dt * 0.12;
-    particles.current?.children.forEach((c, i) =>
-      c.position.copy(curve.getPointAt((progress.current + i / 7) % 1)),
-    );
+  const pulseMaterial = useRef<THREE.ShaderMaterial>(null);
+  const travel = useRef(0);
+  const pulseUniforms = useMemo(
+    () => ({
+      uTravel: { value: 0 },
+      uColor: { value: new THREE.Color("#b9ffff") },
+    }),
+    [],
+  );
+  useFrame(({ clock }, dt) => {
+    if (!paused && !blocked && !inactive) {
+      travel.current = (travel.current + dt * 0.48) % 1;
+      if (pulseMaterial.current) {
+        pulseMaterial.current.uniforms.uTravel.value += dt * 1.15;
+        pulseMaterial.current.uniformsNeedUpdate = true;
+      }
+    }
+    particles.current?.children.forEach((c, i) => {
+      if (blocked) {
+        c.position.copy(curve.getPointAt(0.18 + i * 0.17));
+        c.scale.setScalar(
+          paused
+            ? 0.62
+            : 0.55 + 0.18 * Math.sin(clock.elapsedTime * 3 + i * 1.9),
+        );
+      } else {
+        c.position.copy(curve.getPointAt((travel.current + i / 4) % 1));
+      }
+    });
   });
   return (
     <>
       <mesh>
         <tubeGeometry args={[curve, 60, 0.095, 8, false]} />
         <meshStandardMaterial
-          color={blocked ? "#733b65" : "#155d6b"}
-          emissive={blocked ? pink : cyan}
-          emissiveIntensity={0.25}
+          color={inactive ? "#263746" : blocked ? "#733b65" : "#155d6b"}
+          emissive={inactive ? "#263746" : blocked ? pink : cyan}
+          emissiveIntensity={inactive ? 0.04 : 0.25}
         />
       </mesh>
+      {!blocked && !inactive && (
+        <mesh renderOrder={2}>
+          <tubeGeometry args={[curve, 120, 0.145, 12, false]} />
+          <shaderMaterial
+            ref={pulseMaterial}
+            uniforms={pulseUniforms}
+            transparent
+            depthWrite={false}
+            blending={THREE.AdditiveBlending}
+            vertexShader={`varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`}
+            fragmentShader={`
+              uniform float uTravel;
+              uniform vec3 uColor;
+              varying vec2 vUv;
+              void main() {
+                float distanceToBand = abs(fract(vUv.x * 4.0 - uTravel) - 0.5);
+                float band = 1.0 - smoothstep(0.045, 0.22, distanceToBand);
+                float core = 1.0 - smoothstep(0.0, 0.085, distanceToBand);
+                gl_FragColor = vec4(uColor * (0.55 + core * 0.8), band * 0.83);
+              }
+            `}
+          />
+        </mesh>
+      )}
       <Line
         points={points}
-        color={blocked ? pink : cyan}
+        color={inactive ? "#546374" : blocked ? pink : cyan}
         lineWidth={1.5}
         transparent
-        opacity={0.5}
+        opacity={inactive ? 0.22 : 0.5}
       />
-      {!blocked && (
+      {!inactive && (
         <group ref={particles}>
-          {Array.from({ length: 7 }, (_, i) => (
-            <mesh key={i}>
-              <sphereGeometry args={[0.065, 8, 8]} />
-              <meshBasicMaterial color="#b9ffff" />
-            </mesh>
+          {Array.from({ length: 4 }, (_, i) => (
+            <group key={i}>
+              <mesh>
+                {blocked ? (
+                  <octahedronGeometry args={[0.11]} />
+                ) : (
+                  <sphereGeometry args={[0.14, 12, 12]} />
+                )}
+                <meshBasicMaterial color={blocked ? pink : "#dbffff"} />
+              </mesh>
+              {!blocked && (
+                <mesh>
+                  <sphereGeometry args={[0.25, 12, 12]} />
+                  <meshBasicMaterial
+                    color={cyan}
+                    transparent
+                    opacity={0.24}
+                    depthWrite={false}
+                  />
+                </mesh>
+              )}
+            </group>
           ))}
         </group>
       )}
     </>
+  );
+}
+function FragmentedGrid() {
+  const geometry = useMemo(() => {
+    const vertices: number[] = [];
+    const segments = 42;
+    for (let axis = 0; axis < 2; axis++) {
+      for (let line = -20; line <= 20; line++) {
+        for (let index = 0; index < segments; index++) {
+          // Deterministic breaks produce a damaged grid without frame-by-frame flashing.
+          const hash = Math.abs(
+            Math.sin(line * 41.37 + index * 17.11 + axis * 93.7),
+          );
+          if (hash < 0.36 || (Math.abs(line) < 9 && hash < 0.17)) continue;
+          const start = -21 + index;
+          const end = start + (hash > 0.78 ? 0.91 : 0.62);
+          if (axis === 0) vertices.push(start, -0.015, line, end, -0.015, line);
+          else vertices.push(line, -0.015, start, line, -0.015, end);
+        }
+      }
+    }
+    const result = new THREE.BufferGeometry();
+    result.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(vertices, 3),
+    );
+    return result;
+  }, []);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  return (
+    <lineSegments geometry={geometry}>
+      <lineBasicMaterial
+        color="#4a9aa5"
+        transparent
+        opacity={0.32}
+        depthWrite={false}
+      />
+    </lineSegments>
+  );
+}
+function DisruptionBeacon({
+  position,
+  paused,
+  color,
+}: {
+  position: [number, number, number];
+  paused: boolean;
+  color: string;
+}) {
+  const halo = useRef<THREE.Mesh>(null);
+  useFrame(({ clock }) => {
+    if (!halo.current) return;
+    const pulse = paused ? 0.6 : 0.5 + 0.5 * Math.sin(clock.elapsedTime * 2.6);
+    halo.current.scale.setScalar(1 + pulse * 0.32);
+  });
+  return (
+    <group position={position}>
+      <mesh ref={halo} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]}>
+        <ringGeometry args={[1.16, 1.23, 48]} />
+        <meshBasicMaterial
+          color={color}
+          transparent
+          opacity={0.7}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      <mesh position={[0, 1.6, 0]}>
+        <octahedronGeometry args={[0.2]} />
+        <meshBasicMaterial color={color} />
+      </mesh>
+    </group>
   );
 }
 class SceneBoundary extends Component<
@@ -333,16 +786,20 @@ export function DigitalTwin({
   onSelect,
   paused,
   command,
+  onZoomChange,
 }: {
   snapshot: TwinSnapshot;
   selected: string;
   onSelect: (id: string) => void;
   paused: boolean;
   command: ViewCommand | null;
+  onZoomChange?: (level: number) => void;
 }) {
   const failed =
     snapshot.equipment.find((e) => e.id === "P-01")?.status === "failed";
-  const labels = useRef<Record<string, HTMLDivElement | null>>({});
+  const incidentAsset = snapshot.equipment.find(
+    (e) => e.id === snapshot.incident?.equipmentId,
+  );
   return (
     <SceneBoundary>
       <div className="twin-canvas">
@@ -363,10 +820,7 @@ export function DigitalTwin({
             color="#96f3ff"
           />
           <pointLight position={[-5, 5, 3]} color={pink} intensity={20} />
-          <gridHelper
-            args={[40, 40, "#215260", "#13232f"]}
-            position={[0, -0.03, 0]}
-          />
+          <FragmentedGrid />
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.08, 0]}>
             <planeGeometry args={[42, 42]} />
             <meshStandardMaterial color="#080f18" transparent opacity={0.8} />
@@ -400,12 +854,21 @@ export function DigitalTwin({
           />
           {snapshot.equipment.map((e) =>
             e.kind === "tank" ? (
-              <Tank
-                key={e.id}
-                e={e}
-                selected={selected === e.id}
-                onSelect={() => onSelect(e.id)}
-              />
+              e.id === "T-102" ? (
+                <BufferTank
+                  key={e.id}
+                  e={e}
+                  selected={selected === e.id}
+                  onSelect={() => onSelect(e.id)}
+                />
+              ) : (
+                <Tank
+                  key={e.id}
+                  e={e}
+                  selected={selected === e.id}
+                  onSelect={() => onSelect(e.id)}
+                />
+              )
             ) : e.kind === "pump" ? (
               <Pump
                 key={e.id}
@@ -415,31 +878,15 @@ export function DigitalTwin({
                 onSelect={() => onSelect(e.id)}
               />
             ) : (
-              <group
-                key={e.id}
-                position={e.position}
-                userData={{ equipmentId: e.id }}
-                onClick={(ev) => {
-                  ev.stopPropagation();
-                  onSelect(e.id);
-                }}
-              >
-                <mesh position={[0, 0.65, 0]}>
-                  <boxGeometry args={[2.5, 1.3, 3]} />
-                  <meshStandardMaterial color="#133444" />
-                </mesh>
-                <mesh position={[0, 0.66, 0]}>
-                  <boxGeometry args={[2.52, 1.32, 3.02]} />
-                  <meshBasicMaterial wireframe color={cyan} />
-                </mesh>
-                {[-0.7, 0, 0.7].map((x) => (
-                  <mesh key={x} position={[x, 1.5, 0]}>
-                    <cylinderGeometry args={[0.18, 0.18, 0.4, 12]} />
-                    <meshBasicMaterial color="#277488" />
-                  </mesh>
-                ))}
-              </group>
+              <TreatmentSkid key={e.id} e={e} onSelect={() => onSelect(e.id)} />
             ),
+          )}
+          {incidentAsset && (
+            <DisruptionBeacon
+              position={incidentAsset.position}
+              paused={paused}
+              color={incidentAsset.status === "failed" ? pink : amber}
+            />
           )}
           <Pipe
             points={[
@@ -467,7 +914,6 @@ export function DigitalTwin({
               [-1.5, 0.5, 2],
             ]}
             paused={paused}
-            blocked={failed}
           />
           <Pipe
             points={[
@@ -487,80 +933,106 @@ export function DigitalTwin({
               [6.2, 0.5, 0],
             ]}
             paused={paused}
-            blocked
+            inactive
           />
-          <CameraController command={command} onSelect={onSelect} />
-          <ProjectedLabels equipment={snapshot.equipment} labels={labels} />
-        </Canvas>
-        <div className="asset-label-layer">
+          <CameraController
+            command={command}
+            onSelect={onSelect}
+            onZoomChange={onZoomChange}
+          />
           {snapshot.equipment.map((e) => (
-            <div
-              className="projected-label"
+            <EquipmentBoard
               key={e.id}
-              ref={(node) => {
-                labels.current[e.id] = node;
-              }}
-            >
-              <button
-                className={`scene-label ${e.kind !== "tank" ? "pump" : ""} ${selected === e.id ? "selected" : ""} ${e.status === "warning" ? "warning" : ""}`}
-                onClick={() => onSelect(e.id)}
-              >
-                <span>
-                  {e.id}
-                  {e.kind !== "tank" && (
-                    <b style={{ color: e.status === "failed" ? pink : cyan }}>
-                      {e.status === "failed"
-                        ? "✕ FAULT"
-                        : e.kind === "treatment"
-                          ? "TREATMENT"
-                          : e.status.toUpperCase()}
-                    </b>
-                  )}
-                </span>
-                {e.kind === "tank" && (
-                  <>
-                    <strong>
-                      {e.level?.toFixed(1)}
-                      <small>%</small>
-                    </strong>
-                    <em>
-                      {e.status === "warning" ? "▲ HIGH LEVEL" : "● NOMINAL"}
-                    </em>
-                  </>
-                )}
-              </button>
-            </div>
+              e={e}
+              selected={selected === e.id}
+              onSelect={() => onSelect(e.id)}
+            />
           ))}
-        </div>
+        </Canvas>
       </div>
     </SceneBoundary>
   );
 }
 
-function ProjectedLabels({
-  equipment,
-  labels,
+/** A world-fixed sign with separately oriented front/back text, never a billboard. */
+function EquipmentBoard({
+  e,
+  selected,
+  onSelect,
 }: {
-  equipment: Equipment[];
-  labels: React.RefObject<Record<string, HTMLDivElement | null>>;
+  e: Equipment;
+  selected: boolean;
+  onSelect: () => void;
 }) {
-  const { camera, size } = useThree();
-  const point = useMemo(() => new THREE.Vector3(), []);
-  useFrame(() => {
-    for (const e of equipment) {
-      const node = labels.current[e.id];
-      if (!node) continue;
-      point
-        .set(
-          e.position[0],
-          e.position[1] +
-            (e.kind === "tank" ? 4.1 : e.kind === "pump" ? 2.1 : 2.5),
-          e.position[2],
-        )
-        .project(camera);
-      node.style.transform = `translate(${(point.x * 0.5 + 0.5) * size.width}px,${(-point.y * 0.5 + 0.5) * size.height}px) translate(-50%,-50%)`;
-      node.style.display = point.z > 1 ? "none" : "block";
-    }
-  });
-  return null;
+  const texture = useMemo(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 768;
+    canvas.height = 384;
+    const ctx = canvas.getContext("2d")!;
+    const color =
+      e.status === "failed" ? pink : e.status === "warning" ? amber : cyan;
+    ctx.fillStyle = "#091724";
+    ctx.fillRect(0, 0, 768, 384);
+    ctx.strokeStyle = selected ? "#ffffff" : color;
+    ctx.lineWidth = 8;
+    ctx.strokeRect(4, 4, 760, 376);
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#cceaf0";
+    ctx.font = "bold 56px monospace";
+    ctx.fillText(e.id, 384, 84);
+    ctx.fillStyle = color;
+    ctx.font = "bold 96px monospace";
+    ctx.fillText(
+      e.kind === "tank"
+        ? `${e.level?.toFixed(1) ?? "—"}%`
+        : e.status.toUpperCase(),
+      384,
+      222,
+    );
+    ctx.font = "32px monospace";
+    ctx.fillText(
+      e.kind === "tank"
+        ? e.status === "warning"
+          ? "HIGH LEVEL"
+          : "NOMINAL"
+        : e.kind.toUpperCase(),
+      384,
+      322,
+    );
+    const map = new THREE.CanvasTexture(canvas);
+    map.colorSpace = THREE.SRGBColorSpace;
+    return map;
+  }, [e.id, e.kind, e.level, e.status, selected]);
+  useEffect(() => () => texture.dispose(), [texture]);
+  return (
+    <group
+      position={[
+        e.position[0],
+        e.position[1] + (e.kind === "tank" ? 4.7 : 2.7),
+        e.position[2],
+      ]}
+      userData={{ equipmentId: e.id }}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect();
+      }}
+    >
+      <mesh>
+        <boxGeometry args={[2.6, 1.3, 0.08]} />
+        <meshBasicMaterial color="#163b49" />
+      </mesh>
+      {[0, Math.PI].map((angle, i) => (
+        <group key={i} rotation={[0, angle, 0]}>
+          <mesh position={[0, 0, 0.045]}>
+            <planeGeometry args={[2.58, 1.28]} />
+            <meshBasicMaterial map={texture} toneMapped={false} />
+          </mesh>
+        </group>
+      ))}
+      <mesh position={[0, -0.85, 0]}>
+        <boxGeometry args={[0.045, 0.4, 0.045]} />
+        <meshBasicMaterial color={cyan} />
+      </mesh>
+    </group>
+  );
 }

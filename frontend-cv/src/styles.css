@@ -1795,6 +1795,55 @@ footer > span:first-child {
 .scene-topline {
   z-index: 3;
 }
+.scene-flow-key {
+  position: absolute;
+  z-index: 3;
+  top: 42px;
+  left: 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: #a5bec7;
+  font:
+    8px "IBM Plex Mono",
+    monospace;
+  letter-spacing: 0.2px;
+  pointer-events: none;
+  background: #07121bc9;
+  border: 1px solid #2a48514d;
+  border-radius: 3px;
+  padding: 5px 7px;
+}
+.scene-flow-key span {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.scene-flow-key i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+}
+.scene-flow-key i.flow-disrupted {
+  background: var(--pink);
+  box-shadow: 0 0 6px var(--pink);
+}
+.scene-flow-key small {
+  font-size: 7px;
+  color: #78919a;
+  letter-spacing: 1px;
+}
+@media (max-width: 620px) {
+  .scene-flow-key {
+    gap: 6px;
+    font-size: 7px;
+  }
+  .scene-flow-key small {
+    display: none;
+  }
+}
 .hand-cursor {
   position: absolute;
   z-index: 5;
@@ -1817,4 +1866,453 @@ footer > span:first-child {
 }
 .camera-preview canvas {
   object-fit: contain;
+}
+.dwell-ring {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  left: 50%;
+  top: 12px;
+  transform: translate(-50%, -50%) rotate(-90deg);
+  overflow: visible;
+}
+.dwell-ring circle {
+  fill: none;
+  stroke: #ee83dc33;
+  stroke-width: 1.5;
+}
+.dwell-ring circle + circle {
+  stroke: var(--cyan);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.hand-cursor > svg:not(.dwell-ring) {
+  margin-bottom: 10px;
+}
+.hand-cursor {
+  gap: 7px;
+}
+.gesture-scene-feedback {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  background: #0a1826ed;
+  border: 1px solid #31505d;
+  border-radius: 4px;
+  pointer-events: none;
+  color: #9ac3d1;
+  font:
+    8px "IBM Plex Mono",
+    monospace;
+  white-space: nowrap;
+}
+.gesture-scene-feedback svg {
+  color: var(--pink);
+}
+.gesture-scene-feedback small {
+  font-size: 6px;
+  color: #5d899b;
+  border-left: 1px solid #31505d;
+  padding-left: 8px;
+}
+.tracking-details {
+  margin-top: 13px;
+  max-width: 280px;
+}
+.hold-progress {
+  height: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: #263847;
+  max-width: 180px;
+}
+.hold-progress span {
+  height: 100%;
+  display: block;
+  background: linear-gradient(90deg, var(--cyan), var(--pink));
+  transition: width 0.065s linear;
+}
+.tracking-details p {
+  font-size: 8px;
+  line-height: 1.7;
+  margin-top: 7px;
+  color: #9ab7c7;
+}
+.tracking-details small {
+  display: block;
+  font:
+    7px "IBM Plex Mono",
+    monospace;
+  color: #688b9d;
+  margin-top: 6px;
+  line-height: 1.7;
+}
+.last-gesture-action {
+  font:
+    6px "IBM Plex Mono",
+    monospace;
+  color: #bd91b3;
+  display: block;
+  margin-top: 6px;
+}
+.gesture-panel:has(.tracking-details) {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.gesture-panel:has(.tracking-details) .gesture-copy {
+  min-width: 220px;
+}
+.gesture-panel:has(.tracking-details) .camera-preview {
+  display: block;
+  width: 140px;
+  height: 112px;
+}
+.gesture-panel:has(.tracking-details) .gesture-cards {
+  margin-top: 4px;
+}
+.camera-preview video,
+.camera-preview canvas {
+  object-fit: contain;
+  background: transparent;
+}
+.camera-error {
+  position: static;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  flex: 1 0 100%;
+  padding: 10px 12px;
+  background: #251d25;
+  border: 1px solid #684758;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1.6;
+}
+.camera-error span {
+  flex: 1;
+}
+.camera-error button {
+  color: var(--pink);
+  white-space: nowrap;
+  font-size: 9px;
+}
+.gesture-toggle.enabled {
+  color: var(--cyan);
+}
+@media (max-width: 760px) {
+  .gesture-scene-feedback {
+    bottom: 65px;
+    max-width: 85%;
+    white-space: normal;
+    font-size: 7px;
+  }
+  .gesture-panel:has(.tracking-details) .camera-preview {
+    width: 100%;
+    height: 190px;
+  }
+  .tracking-details {
+    max-width: 100%;
+  }
+  .tracking-details p {
+    font-size: 10px;
+  }
+  .tracking-details small {
+    font-size: 8px;
+  }
+  .last-gesture-action {
+    font-size: 7px;
+  }
+  .camera-error {
+    flex-wrap: wrap;
+  }
+  .camera-error button {
+    font-size: 10px;
+  }
+  .hold-progress {
+    max-width: 100%;
+  }
+}
+.zoom-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 17px;
+  padding: 12px 17px;
+  border-top: 1px solid #20303d;
+  background: #0c1823;
+}
+.zoom-toolbar > button {
+  font-size: 10px;
+  white-space: nowrap;
+  color: #9ebfcd;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid #2c4655;
+  border-radius: 4px;
+}
+.zoom-toolbar > button:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+.zoom-slider-label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 8px;
+}
+.zoom-slider-label > span {
+  display: flex;
+  justify-content: space-between;
+  color: #718e9f;
+}
+.zoom-slider-label b {
+  color: var(--cyan);
+  font-weight: 400;
+}
+.zoom-slider-label input {
+  width: 100%;
+  accent-color: var(--cyan);
+  cursor: pointer;
+  margin: 0;
+  height: 14px;
+}
+.hand-mode-switch {
+  display: flex;
+  gap: 5px;
+  margin-top: 13px;
+}
+.hand-mode-switch button {
+  border: 1px solid #2a4352;
+  padding: 8px 12px;
+  font-size: 10px;
+  color: #6f91a4;
+  border-radius: 4px;
+}
+.hand-mode-switch button[aria-pressed="true"] {
+  color: var(--cyan);
+  border-color: #428893;
+  background: #15313b;
+}
+.zoom-coach {
+  order: 3;
+  flex: 1 0 100%;
+  padding: 17px;
+  border: 1px solid #294958;
+  border-radius: 6px;
+  background: linear-gradient(120deg, #102632, #111c2b);
+  max-width: 100%;
+}
+.zoom-coach-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font:
+    9px "IBM Plex Mono",
+    monospace;
+  letter-spacing: 0.8px;
+  color: var(--cyan);
+}
+.clutch-button {
+  font-family: "DM Sans", sans-serif;
+  font-size: 10px;
+  border: 1px solid #446878;
+  background: #183745;
+  border-radius: 4px;
+  padding: 8px 10px;
+  color: #bee0e9;
+  letter-spacing: 0;
+}
+.clutch-button.engaged {
+  background: #3b2d3c;
+  border-color: #a37298;
+  color: #ffc2ea;
+}
+.spread-meter {
+  height: 10px;
+  margin-top: 23px;
+  margin-bottom: 12px;
+  background: #263948;
+  border-radius: 4px;
+  position: relative;
+}
+.spread-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #256277, #59dfe0);
+  border-radius: 4px;
+  opacity: 0.6;
+}
+.spread-meter i {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 22px;
+  border-radius: 3px;
+  z-index: 2;
+}
+.camera-marker {
+  background: white;
+  box-shadow: 0 0 8px #fff5;
+}
+.spread-meter .hand-marker {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #56ffff;
+  background: #0a3445;
+  border-radius: 50%;
+  z-index: 3;
+}
+.spread-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  font:
+    7px "IBM Plex Mono",
+    monospace;
+  color: #698c9e;
+}
+.zoom-coach > p {
+  font-size: 10px;
+  color: #91b1c2;
+  line-height: 1.7;
+  margin-top: 13px;
+}
+.white-marker-key {
+  width: 3px;
+  height: 9px;
+  display: inline-block;
+  background: white;
+  margin-right: 6px;
+}
+.range-calibration {
+  border-top: 1px solid #2a4253;
+  margin-top: 15px;
+  padding-top: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 10px;
+  color: #86b8c8;
+}
+.range-calibration button {
+  font-size: 9px;
+  color: #ba97bd;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.calibration-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.calibration-actions button {
+  border: 1px solid #38596a;
+  color: #b5d9e4;
+  border-radius: 4px;
+  padding: 9px 12px;
+  font-size: 10px;
+  min-height: 34px;
+}
+.calibration-actions button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.zoom-coach > small {
+  display: block;
+  font-size: 9px;
+  color: #6f99ad;
+  line-height: 1.8;
+  margin-top: 10px;
+}
+.gesture-panel:has(.zoom-coach) .gesture-copy {
+  flex: 1;
+  min-width: 220px;
+}
+.gesture-panel:has(.zoom-coach) .camera-preview {
+  order: 2;
+  width: 200px;
+  height: 150px;
+}
+.gesture-panel:has(.zoom-coach) .tracking-details .hold-progress {
+  display: none;
+}
+.gesture-panel:has(.zoom-coach) .gesture-copy h3 {
+  font-size: 23px;
+}
+.camera-preview.on {
+  border-style: solid;
+  border-color: #3a6674;
+}
+@media (max-width: 760px) {
+  .zoom-toolbar {
+    padding: 11px;
+    gap: 10px;
+  }
+  .zoom-toolbar > button {
+    font-size: 9px;
+    padding: 5px;
+  }
+  .zoom-coach {
+    padding: 13px;
+  }
+  .zoom-coach-heading {
+    font-size: 7px;
+  }
+  .clutch-button {
+    font-size: 9px;
+    padding: 8px;
+  }
+  .spread-labels {
+    font-size: 6px;
+  }
+  .zoom-coach > p {
+    font-size: 9px;
+  }
+  .gesture-panel:has(.zoom-coach) .camera-preview {
+    width: 100%;
+    height: 190px;
+  }
+  .calibration-actions button {
+    flex: 1;
+    font-size: 9px;
+  }
+  .zoom-coach > small {
+    font-size: 9px;
+  }
+  .gesture-panel:has(.zoom-coach) .gesture-copy h3 {
+    font-size: 24px;
+  }
+  .range-calibration {
+    font-size: 9px;
+  }
+  .gesture-panel:has(.zoom-coach) .tracking-status {
+    font-size: 9px;
+  }
+}
+
+/* World-anchored, camera-facing equipment labels. */
+.projected-label {
+  width: 116px;
+}
+.projected-label .scene-label {
+  width: 100%;
+  box-sizing: border-box;
+  font-variant-numeric: tabular-nums;
+  background: rgba(8, 19, 29, 0.94);
+}
+.tracking-status {
+  min-height: 26px;
+}
+.gesture-copy h3 {
+  min-height: 52px;
 }

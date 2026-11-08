@@ -63,3 +63,70 @@ describe("temporal gesture gate", () => {
     expect(g.update("pinch", 1922)).toBe(true);
   });
 });
+
+import { GestureController, type GestureSample } from "./recognizer";
+const sample = (
+  gesture: GestureSample["gesture"],
+  x = 0.5,
+  y = 0.5,
+): GestureSample => ({ gesture, x, y, palmX: x, palmY: y });
+describe("gesture arbitration", () => {
+  it("requires a stable pointing location rather than just a stable finger pose", () => {
+    const c = new GestureController();
+    c.update(sample("point"), 0);
+    expect(c.update(sample("point", 0.7), 350).progress).toBe(0);
+    expect(c.update(sample("point", 0.7), 600).action).toBeUndefined();
+    expect(c.update(sample("point", 0.7), 780).action).toBe("point");
+  });
+  it("fires a swipe once and cannot pause from the same open palm", () => {
+    const c = new GestureController();
+    c.update(sample("palm", 0.3), 0);
+    expect(c.update(sample("palm", 0.51), 200).action).toBe("swipe");
+    expect(c.update(sample("palm", 0.51), 1200).action).toBeUndefined();
+    expect(c.update(sample("palm", 0.51), 2100).hint).toContain("Release");
+  });
+  it("distinguishes a stationary palm hold from a swipe", () => {
+    const c = new GestureController();
+    c.update(sample("palm"), 0);
+    expect(c.update(sample("palm"), 500).action).toBeUndefined();
+    expect(c.update(sample("palm"), 751).action).toBe("palm");
+  });
+  it("requires a sustained neutral release across every gesture type", () => {
+    const c = new GestureController();
+    c.update(sample("pinch"), 0);
+    expect(c.update(sample("pinch"), 301).action).toBe("pinch");
+    c.update(sample("none"), 500);
+    c.update(sample("none"), 600);
+    expect(c.update(sample("palm"), 1800).action).toBeUndefined();
+    expect(c.update(sample("palm"), 2800).hint).toContain("Release");
+    c.update(sample("none"), 2900);
+    c.update(sample("none"), 3100);
+    c.update(sample("point"), 3200);
+    expect(c.update(sample("point"), 3621).action).toBe("point");
+  });
+  it("rejects a vertical palm movement as a horizontal swipe", () => {
+    const c = new GestureController();
+    c.update(sample("palm", 0.3, 0.3), 0);
+    expect(c.update(sample("palm", 0.55, 0.6), 200).action).toBeUndefined();
+  });
+  it("requires neutral rearming after the tab is suspended", () => {
+    const c = new GestureController();
+    c.suspend();
+    expect(c.update(sample("palm"), 0).action).toBeUndefined();
+    expect(c.update(sample("palm"), 1000).action).toBeUndefined();
+    c.update(sample("none"), 1100);
+    c.update(sample("none"), 1300);
+    c.update(sample("palm"), 1400);
+    expect(c.update(sample("palm"), 2151).action).toBe("palm");
+  });
+  it("returns measurable dwell progress without inventing model confidence", () => {
+    const c = new GestureController();
+    c.update(sample("point"), 0);
+    expect(c.update(sample("point"), 210).progress).toBe(0.5);
+  });
+  it("rejects nonfinite tracking coordinates", () => {
+    const p = hand();
+    p[8].x = NaN;
+    expect(classifyHand(p)).toBe("none");
+  });
+});
