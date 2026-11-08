@@ -151,11 +151,21 @@ export default function App({ source }: { source?: TwinSource }) {
     setInspectorTab("telemetry");
   }, []);
   const onGesture = useCallback((e: HandEvent) => {
-    if (e.gesture === "palm") setPaused((p) => !p);
-    if (e.gesture === "pinch") setCommand({ type: "zoom", delta: 0.88 });
-    if (e.gesture === "swipe")
+    if (e.gesture === "pan") {
+      setCommand({ type: "rotate", delta: e.delta ?? 0 });
+    }
+    if (e.gesture === "zoom_delta") {
+      setCommand({ type: "zoom", delta: e.delta ?? 0.95 });
+    }
+    if (e.gesture === "pinch") {
+      setCommand({ type: "zoom", delta: 0.92 });
+    }
+    if (e.gesture === "swipe") {
       setCommand({ type: "rotate", delta: (e.delta ?? 1) * 0.4 });
-    if (e.gesture === "point") setCommand({ type: "select", x: e.x, y: e.y });
+    }
+    if (e.gesture === "point") {
+      setCommand({ type: "select", x: e.x, y: e.y });
+    }
   }, []);
   const tracking = useHandTracking(enabled, onGesture);
   useEffect(() => {

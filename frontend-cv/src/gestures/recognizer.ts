@@ -5,13 +5,13 @@ export interface Point {
 }
 export type Gesture = "point" | "palm" | "pinch" | "none";
 export const gestureConfig = {
-  confidence: 0.75,
-  dwellMs: 420,
-  cooldownMs: 1100,
-  pinchRatio: 0.32,
-  swipeDistance: 0.18,
-  swipeWindowMs: 420,
-  smoothing: 0.3,
+  confidence: 0.62,
+  dwellMs: 120,
+  cooldownMs: 220,
+  pinchRatio: 0.35,
+  swipeDistance: 0.09,
+  swipeWindowMs: 300,
+  smoothing: 0.70,
 };
 export function classifyHand(p: Point[], config = gestureConfig): Gesture {
   if (p.length !== 21) return "none";

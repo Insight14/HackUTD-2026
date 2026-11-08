@@ -7,10 +7,12 @@ import {
   type Point,
 } from "./recognizer";
 export type HandEvent = {
-  gesture: Gesture | "swipe";
+  gesture: Gesture | "swipe" | "pan" | "zoom_delta";
   x: number;
   y: number;
   delta?: number;
+  dx?: number;
+  dy?: number;
 };
 export function useHandTracking(
   enabled: boolean,
@@ -40,6 +42,7 @@ export function useHandTracking(
       lastInference = 0,
       smoothed: Point[] | undefined,
       anchor: { x: number; t: number } | undefined,
+      lastPos: { x: number; y: number; t: number } | undefined,
       lastSwipe = 0;
     setError("");
     setStatus("Loading hand tracker");
@@ -104,7 +107,7 @@ export function useHandTracking(
             if (
               v!.readyState >= 2 &&
               v!.currentTime !== lastFrame &&
-              now - lastInference > 65
+              now - lastInference > 20
             ) {
               lastFrame = v!.currentTime;
               lastInference = now;
@@ -115,10 +118,10 @@ export function useHandTracking(
               if (points) {
                 smoothed = points.map((p, i) => ({
                   x: smoothed
-                    ? smoothed[i].x + (p.x - smoothed[i].x) * 0.3
+                    ? smoothed[i].x + (p.x - smoothed[i].x) * gestureConfig.smoothing
                     : p.x,
                   y: smoothed
-                    ? smoothed[i].y + (p.y - smoothed[i].y) * 0.3
+                    ? smoothed[i].y + (p.y - smoothed[i].y) * gestureConfig.smoothing
                     : p.y,
                   z: p.z,
                 }));
@@ -158,6 +161,41 @@ export function useHandTracking(
                   y = smoothed[8].y;
                 setPointer({ x, y });
                 const palmX = 1 - smoothed[0].x;
+                const palmY = smoothed[0].y;
+
+                // Real-time continuous fluid interaction
+                if (lastPos) {
+                  const dx = palmX - lastPos.x;
+                  const dy = palmY - lastPos.y;
+
+                  if (g === "palm" && Math.abs(dx) > 0.002) {
+                    callback.current({
+                      gesture: "pan",
+                      x,
+                      y,
+                      dx,
+                      dy,
+                      delta: -dx * 3.8,
+                    });
+                  } else if (g === "pinch") {
+                    if (Math.abs(dy) > 0.002) {
+                      callback.current({
+                        gesture: "zoom_delta",
+                        x,
+                        y,
+                        delta: 1.0 + dy * 2.8,
+                      });
+                    }
+                  } else if (g === "point") {
+                    callback.current({
+                      gesture: "point",
+                      x,
+                      y,
+                    });
+                  }
+                }
+                lastPos = { x: palmX, y: palmY, t: now };
+
                 if (!anchor || now - anchor.t > gestureConfig.swipeWindowMs)
                   anchor = { x: palmX, t: now };
                 if (
@@ -182,6 +220,7 @@ export function useHandTracking(
                 setGesture("none");
                 smoothed = undefined;
                 anchor = undefined;
+                lastPos = undefined;
                 gate.reset();
               }
             }
